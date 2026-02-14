@@ -33,7 +33,12 @@ export default defineConfig({
     unstubGlobals: true,
     pool: "forks",
     maxWorkers: isCI ? ciWorkers : localWorkers,
-    include: ["src/**/*.test.ts", "extensions/**/*.test.ts", "test/format-error.test.ts"],
+    include: [
+      "src/**/*.test.ts",
+      "extensions/**/*.test.ts",
+      "packages/core/src/**/*.test.ts",
+      "test/format-error.test.ts",
+    ],
     setupFiles: ["test/setup.ts"],
     exclude: [
       "dist/**",
