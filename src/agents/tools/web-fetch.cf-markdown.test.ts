@@ -17,7 +17,7 @@ vi.mock("./web-fetch-utils.js", async () => {
 });
 
 const lookupMock = vi.fn();
-const resolvePinnedHostname = ssrf.resolvePinnedHostname;
+const resolvePinnedHostnameWithPolicy = ssrf.resolvePinnedHostnameWithPolicy;
 const baseToolConfig = {
   config: {
     tools: { web: { fetch: { cacheTtlMinutes: 0, firecrawl: { enabled: false } } } },
@@ -53,8 +53,8 @@ describe("web_fetch Cloudflare Markdown for Agents", () => {
 
   beforeEach(() => {
     lookupMock.mockResolvedValue([{ address: "93.184.216.34", family: 4 }]);
-    vi.spyOn(ssrf, "resolvePinnedHostname").mockImplementation((hostname) =>
-      resolvePinnedHostname(hostname, lookupMock),
+    vi.spyOn(ssrf, "resolvePinnedHostnameWithPolicy").mockImplementation((hostname, params) =>
+      resolvePinnedHostnameWithPolicy(hostname, { ...params, lookupFn: lookupMock }),
     );
   });
 

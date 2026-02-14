@@ -25,14 +25,20 @@ import { withIsolatedTestHome } from "./test-env.js";
 const testEnv = withIsolatedTestHome();
 afterAll(() => testEnv.cleanup());
 
-const [{ installProcessWarningFilter }, { setActivePluginRegistry }, { createTestRegistry }] =
-  await Promise.all([
-    import("../src/infra/warning-filter.js"),
-    import("../src/plugins/runtime.js"),
-    import("../src/test-utils/channel-plugins.js"),
-  ]);
+const [
+  { installProcessWarningFilter },
+  { setActivePluginRegistry },
+  { createTestRegistry },
+  { canBindToHost },
+] = await Promise.all([
+  import("../src/infra/warning-filter.js"),
+  import("../src/plugins/runtime.js"),
+  import("../src/test-utils/channel-plugins.js"),
+  import("../src/gateway/net.js"),
+]);
 
 installProcessWarningFilter();
+process.env.OPENCLAW_TEST_CAN_BIND_LOOPBACK = (await canBindToHost("127.0.0.1")) ? "1" : "0";
 
 const pickSendFn = (id: ChannelId, deps?: OutboundSendDeps) => {
   switch (id) {

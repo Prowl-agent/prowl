@@ -8,9 +8,10 @@ import {
   handlePortError,
   PortInUseError,
 } from "./ports.js";
+const itIfLoopbackAvailable = process.env.OPENCLAW_TEST_CAN_BIND_LOOPBACK === "0" ? it.skip : it;
 
 describe("ports helpers", () => {
-  it("ensurePortAvailable rejects when port busy", async () => {
+  itIfLoopbackAvailable("ensurePortAvailable rejects when port busy", async () => {
     const server = net.createServer();
     await new Promise((resolve) => server.listen(0, resolve));
     const port = (server.address() as net.AddressInfo).port;

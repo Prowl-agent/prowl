@@ -2,11 +2,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { fetch as realFetch } from "undici";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isAuthorizedBrowserRequest } from "./http-auth.js";
+const describeIfLoopbackAvailable =
+  process.env.OPENCLAW_TEST_CAN_BIND_LOOPBACK === "0" ? describe.skip : describe;
 
 let server: ReturnType<typeof createServer> | null = null;
 let port = 0;
 
-describe("browser control HTTP auth", () => {
+describeIfLoopbackAvailable("browser control HTTP auth", () => {
   beforeEach(async () => {
     server = createServer((req: IncomingMessage, res: ServerResponse) => {
       if (!isAuthorizedBrowserRequest(req, { token: "browser-control-secret" })) {

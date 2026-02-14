@@ -1,5 +1,19 @@
-import { describe, expect, it } from "vitest";
-import { resolveGatewayRuntimeConfig } from "./server-runtime-config.js";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("./net.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./net.js")>();
+  return {
+    ...actual,
+    resolveGatewayBindHost: vi.fn(async (bind?: import("../config/config.js").GatewayBindMode) => {
+      if (bind === "loopback") {
+        return "127.0.0.1";
+      }
+      return "0.0.0.0";
+    }),
+  };
+});
+
+const { resolveGatewayRuntimeConfig } = await import("./server-runtime-config.js");
 
 describe("resolveGatewayRuntimeConfig", () => {
   describe("trusted-proxy auth mode", () => {

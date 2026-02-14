@@ -4,6 +4,8 @@ import {
   DEFAULT_OPENCLAW_BROWSER_COLOR,
   DEFAULT_OPENCLAW_BROWSER_PROFILE_NAME,
 } from "./constants.js";
+const describeIfLoopbackAvailable =
+  process.env.OPENCLAW_TEST_CAN_BIND_LOOPBACK === "0" ? describe.skip : describe;
 
 function buildResolvedConfig() {
   return {
@@ -30,7 +32,7 @@ function buildResolvedConfig() {
   } as const;
 }
 
-describe("startBrowserBridgeServer auth", () => {
+describeIfLoopbackAvailable("startBrowserBridgeServer auth", () => {
   const servers: Array<{ stop: () => Promise<void> }> = [];
 
   afterEach(async () => {

@@ -7,6 +7,8 @@ import {
   getChromeExtensionRelayAuthHeaders,
   stopChromeExtensionRelayServer,
 } from "./extension-relay.js";
+const describeIfLoopbackAvailable =
+  process.env.OPENCLAW_TEST_CAN_BIND_LOOPBACK === "0" ? describe.skip : describe;
 
 async function getFreePort(): Promise<number> {
   while (true) {
@@ -134,7 +136,7 @@ async function waitForListMatch<T>(
   }
 }
 
-describe("chrome extension relay server", () => {
+describeIfLoopbackAvailable("chrome extension relay server", () => {
   let cdpUrl = "";
 
   afterEach(async () => {

@@ -4,6 +4,8 @@ import { createServer } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import type { ResolvedZaloAccount } from "./types.js";
 import { handleZaloWebhookRequest, registerZaloWebhookTarget } from "./monitor.js";
+const describeIfLoopbackAvailable =
+  process.env.OPENCLAW_TEST_CAN_BIND_LOOPBACK === "0" ? describe.skip : describe;
 
 async function withServer(
   handler: Parameters<typeof createServer>[0],
@@ -24,7 +26,7 @@ async function withServer(
   }
 }
 
-describe("handleZaloWebhookRequest", () => {
+describeIfLoopbackAvailable("handleZaloWebhookRequest", () => {
   it("returns 400 for non-object payloads", async () => {
     const core = {} as PluginRuntime;
     const account: ResolvedZaloAccount = {

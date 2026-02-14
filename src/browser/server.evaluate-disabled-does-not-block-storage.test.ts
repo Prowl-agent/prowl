@@ -1,6 +1,8 @@
 import { createServer, type AddressInfo } from "node:net";
 import { fetch as realFetch } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const describeIfLoopbackAvailable =
+  process.env.OPENCLAW_TEST_CAN_BIND_LOOPBACK === "0" ? describe.skip : describe;
 
 let testPort = 0;
 let prevGatewayPort: string | undefined;
@@ -79,7 +81,7 @@ async function getFreePort(): Promise<number> {
   return addr.port;
 }
 
-describe("browser control evaluate gating", () => {
+describeIfLoopbackAvailable("browser control evaluate gating", () => {
   beforeEach(async () => {
     testPort = await getFreePort();
     prevGatewayPort = process.env.OPENCLAW_GATEWAY_PORT;
