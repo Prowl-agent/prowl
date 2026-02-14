@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 const HUGGING_FACE_BASE_URL = "https://huggingface.co";
 const HUGGING_FACE_MODELS_API_URL = `${HUGGING_FACE_BASE_URL}/api/models`;
@@ -9,6 +11,9 @@ const BYTES_PER_GB = 1024 ** 3;
 const PROGRESS_DEBOUNCE_MS = 250;
 const SPEED_WINDOW_MS = 3_000;
 const BENCHMARK_TIMEOUT_MS = 30_000;
+const COMMAND_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
+
+const execFileAsync = promisify(execFile);
 
 const QUANTIZATION_REGEX = /Q\d+_K_[MS]|Q\d+_K|Q\d+_\d+/i;
 
@@ -54,6 +59,15 @@ interface HFApiModelDetails {
   likes?: number;
   lastModified?: string;
   siblings?: HFApiSibling[];
+}
+
+interface HFApiTreeEntry {
+  type?: string;
+  path?: string;
+  size?: number;
+  lfs?: {
+    size?: number;
+  };
 }
 
 interface DownloadWindowSample {
@@ -133,6 +147,32 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function getCommandErrorDetails(error: unknown): string {
+  const data = error as {
+    stderr?: string;
+    stdout?: string;
+    shortMessage?: string;
+    message?: string;
+  };
+
+  const stderr = data.stderr?.trim();
+  if (stderr) {
+    return stderr;
+  }
+
+  const stdout = data.stdout?.trim();
+  if (stdout) {
+    return stdout;
+  }
+
+  const shortMessage = data.shortMessage?.trim();
+  if (shortMessage) {
+    return shortMessage;
+  }
+
+  return getErrorMessage(error);
+}
+
 function toOllamaConnectionError(error: unknown): HuggingFaceError {
   if (error instanceof HuggingFaceError) {
     return error;
@@ -192,6 +232,20 @@ function encodeRepoFilePath(filename: string): string {
     .join("/");
 }
 
+function encodeRepoIdPath(repoId: string): string {
+  const segments = repoId
+    .trim()
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+
+  if (segments.length === 0) {
+    return encodeURIComponent(repoId.trim());
+  }
+
+  return segments.map((segment) => encodeURIComponent(segment)).join("/");
+}
+
 function extractQuantization(filename: string): string {
   const match = filename.match(QUANTIZATION_REGEX);
   return match ? match[0].toUpperCase() : "UNKNOWN";
@@ -211,6 +265,77 @@ function parseSiblingSizeBytes(sibling: HFApiSibling): number {
   return 0;
 }
 
+function hasGgufFilesWithMissingSizes(siblings: HFApiSibling[] | undefined): boolean {
+  if (!siblings || siblings.length === 0) {
+    return false;
+  }
+
+  return siblings.some((sibling) => {
+    const filename = sibling.rfilename?.trim();
+    if (!filename || !filename.toLowerCase().endsWith(".gguf")) {
+      return false;
+    }
+    return parseSiblingSizeBytes(sibling) <= 0;
+  });
+}
+
+function buildTreeSizeMap(treeEntries: HFApiTreeEntry[]): Map<string, number> {
+  const sizeMap = new Map<string, number>();
+
+  for (const entry of treeEntries) {
+    if (entry.type !== "file") {
+      continue;
+    }
+
+    const pathValue = entry.path?.trim();
+    if (!pathValue || !pathValue.toLowerCase().endsWith(".gguf")) {
+      continue;
+    }
+
+    const entrySize = parseSiblingSizeBytes({
+      size: entry.size,
+      lfs: entry.lfs,
+    });
+    if (entrySize > 0) {
+      sizeMap.set(pathValue, entrySize);
+    }
+  }
+
+  return sizeMap;
+}
+
+function hydrateSiblingSizesFromTree(
+  siblings: HFApiSibling[] | undefined,
+  treeEntries: HFApiTreeEntry[],
+): HFApiSibling[] | undefined {
+  if (!siblings || siblings.length === 0) {
+    return siblings;
+  }
+
+  const sizeMap = buildTreeSizeMap(treeEntries);
+  if (sizeMap.size === 0) {
+    return siblings;
+  }
+
+  return siblings.map((sibling) => {
+    const filename = sibling.rfilename?.trim();
+    if (!filename || parseSiblingSizeBytes(sibling) > 0) {
+      return sibling;
+    }
+
+    const treeSize = sizeMap.get(filename);
+    if (!treeSize || treeSize <= 0) {
+      return sibling;
+    }
+
+    return {
+      ...sibling,
+      size: treeSize,
+      lfs: sibling.lfs ?? { size: treeSize },
+    };
+  });
+}
+
 function toHfGgufFiles(repoId: string, siblings: HFApiSibling[] | undefined): HFGGUFFile[] {
   if (!siblings) {
     return [];
@@ -227,7 +352,7 @@ function toHfGgufFiles(repoId: string, siblings: HFApiSibling[] | undefined): HF
       filename: path.basename(filename),
       sizeBytes: parseSiblingSizeBytes(sibling),
       quantization: extractQuantization(filename),
-      downloadUrl: `${HUGGING_FACE_BASE_URL}/${repoId}/resolve/main/${encodeRepoFilePath(filename)}`,
+      downloadUrl: `${HUGGING_FACE_BASE_URL}/${encodeRepoIdPath(repoId)}/resolve/main/${encodeRepoFilePath(filename)}`,
     });
   }
 
@@ -371,11 +496,31 @@ async function fetchHfJson<T>(url: string): Promise<T> {
   }
 }
 
+async function fetchRepoTree(repoId: string): Promise<HFApiTreeEntry[]> {
+  const treeUrl = new URL(`${HUGGING_FACE_MODELS_API_URL}/${encodeRepoIdPath(repoId)}/tree/main`);
+  treeUrl.searchParams.set("recursive", "1");
+  return fetchHfJson<HFApiTreeEntry[]>(treeUrl.toString());
+}
+
 async function fetchRepoDetails(repoId: string): Promise<HFSearchResult> {
   const details = await fetchHfJson<HFApiModelDetails>(
-    `${HUGGING_FACE_MODELS_API_URL}/${encodeURIComponent(repoId)}`,
+    `${HUGGING_FACE_MODELS_API_URL}/${encodeRepoIdPath(repoId)}`,
   );
-  return toResult(repoId, details);
+
+  let siblings = details.siblings;
+  if (hasGgufFilesWithMissingSizes(siblings)) {
+    try {
+      const treeEntries = await fetchRepoTree(repoId);
+      siblings = hydrateSiblingSizesFromTree(siblings, treeEntries);
+    } catch {
+      // Keep best-effort behavior when the tree endpoint is unavailable.
+    }
+  }
+
+  return toResult(repoId, {
+    ...details,
+    siblings,
+  });
 }
 
 function ensureValidGgufFiles(result: HFSearchResult, repoId: string): HFGGUFFile[] {
@@ -548,10 +693,13 @@ export async function searchHuggingFace(
         return null;
       }
 
-      const details = await fetchHfJson<HFApiModelDetails>(
-        `${HUGGING_FACE_MODELS_API_URL}/${encodeURIComponent(repoId)}`,
-      );
-      return toResult(repoId, details, entry);
+      const details = await fetchRepoDetails(repoId);
+      return {
+        ...details,
+        downloads: details.downloads || entry.downloads || 0,
+        likes: details.likes || entry.likes || 0,
+        lastModified: details.lastModified || entry.lastModified || "",
+      };
     }),
   );
 
@@ -767,41 +915,16 @@ export async function registerWithOllama(modelPath: string, modelName: string): 
   const modelfilePath = path.join(modelfileDir, `${ollamaTag}.Modelfile`);
   await fs.writeFile(modelfilePath, `${modelfileContent}\n`, "utf8");
 
-  let response: Response;
   try {
-    response = await fetch(`${OLLAMA_API_URL}/api/create`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        name: ollamaTag,
-        modelfile: modelfileContent,
-      }),
+    await execFileAsync("ollama", ["create", ollamaTag, "-f", modelfilePath], {
+      maxBuffer: COMMAND_MAX_BUFFER_BYTES,
     });
   } catch (error) {
-    throw toOllamaConnectionError(error);
-  }
-
-  if (!response.ok) {
-    const body = await readResponseTextSafe(response);
     throw new HuggingFaceError(
-      `Ollama model import failed (HTTP ${response.status}).`,
+      `Ollama model import failed: ${getCommandErrorDetails(error)}`,
       "OLLAMA_CREATE_FAILED",
-      body ? `Ollama error: ${body.slice(0, 240)}` : "Check Ollama logs and retry.",
+      "Check Ollama logs and retry.",
     );
-  }
-
-  if (response.body) {
-    await consumeJsonLineStream(response.body, (line) => {
-      if (typeof line.error === "string" && line.error.trim().length > 0) {
-        throw new HuggingFaceError(
-          `Ollama model import failed: ${line.error}`,
-          "OLLAMA_CREATE_FAILED",
-          "Check Ollama logs and retry.",
-        );
-      }
-    });
   }
 
   return ollamaTag;
