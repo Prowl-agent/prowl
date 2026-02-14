@@ -7,11 +7,21 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
+import os from "node:os";
+import path from "node:path";
 import type { CanvasHostHandler } from "../canvas-host/server.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 import { getSavingsReport } from "../../packages/core/src/analytics/cost-tracker.js";
+import {
+  deleteModel,
+  listInstalledModels,
+  pullModel,
+  switchActiveModel,
+  type ModelManagerConfig,
+  type PullProgress,
+} from "../../packages/core/src/models/model-manager.js";
 import { resolveAgentAvatar } from "../agents/identity-avatar.js";
 import {
   A2UI_PATH,
@@ -63,6 +73,11 @@ type HookAuthFailure = { count: number; windowStartedAtMs: number };
 const HOOK_AUTH_FAILURE_LIMIT = 20;
 const HOOK_AUTH_FAILURE_WINDOW_MS = 60_000;
 const HOOK_AUTH_FAILURE_TRACK_MAX = 2048;
+const MODEL_ROUTE_MAX_BODY_BYTES = 64 * 1024;
+const MODEL_MANAGER_CONFIG: ModelManagerConfig = {
+  ollamaUrl: "http://localhost:11434",
+  prowlConfigPath: path.join(os.homedir(), ".prowl", "config.json"),
+};
 
 type HookDispatchers = {
   dispatchWakeHook: (value: { text: string; mode: "now" | "next-heartbeat" }) => void;
@@ -84,6 +99,52 @@ type HookDispatchers = {
 
 function isSavingsPeriod(value: string): value is "day" | "month" | "all-time" {
   return value === "day" || value === "month" || value === "all-time";
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function getTagFromBody(body: unknown): string {
+  if (!body || typeof body !== "object") {
+    return "";
+  }
+  const maybeTag = (body as { tag?: unknown }).tag;
+  if (typeof maybeTag !== "string") {
+    return "";
+  }
+  return maybeTag.trim();
+}
+
+function getTagFromPathname(pathname: string): string {
+  const prefix = "/api/models/";
+  if (!pathname.startsWith(prefix)) {
+    return "";
+  }
+  const encodedTag = pathname.slice(prefix.length).trim();
+  if (!encodedTag) {
+    return "";
+  }
+  try {
+    return decodeURIComponent(encodedTag).trim();
+  } catch {
+    return "";
+  }
+}
+
+async function isOllamaRunning(ollamaUrl: string): Promise<boolean> {
+  const normalized = ollamaUrl.replace(/\/+$/, "");
+  try {
+    const response = await fetch(`${normalized}/api/version`, {
+      signal: AbortSignal.timeout(1_500),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
@@ -501,6 +562,123 @@ export function createGatewayHttpServer(opts: {
           sendJson(res, 200, report);
         } catch {
           sendJson(res, 500, { error: "Failed to load savings data" });
+        }
+        return;
+      }
+      if (requestPath === "/api/models/installed") {
+        if (req.method !== "GET") {
+          sendJson(res, 405, { error: "Method Not Allowed" });
+          return;
+        }
+        const [models, ollamaRunning] = await Promise.all([
+          listInstalledModels(MODEL_MANAGER_CONFIG),
+          isOllamaRunning(MODEL_MANAGER_CONFIG.ollamaUrl),
+        ]);
+        sendJson(res, 200, { models, ollamaRunning });
+        return;
+      }
+      if (requestPath === "/api/models/switch") {
+        if (req.method !== "POST") {
+          sendJson(res, 405, { error: "Method Not Allowed" });
+          return;
+        }
+        const body = await readJsonBody(req, MODEL_ROUTE_MAX_BODY_BYTES);
+        if (!body.ok) {
+          sendJson(res, 400, { error: body.error });
+          return;
+        }
+        const tag = getTagFromBody(body.value);
+        if (!tag) {
+          sendJson(res, 400, { error: "Model tag is required" });
+          return;
+        }
+        try {
+          await switchActiveModel(tag, MODEL_MANAGER_CONFIG);
+          sendJson(res, 200, { success: true, activeModel: tag });
+        } catch (error) {
+          sendJson(res, 400, { error: getErrorMessage(error) });
+        }
+        return;
+      }
+      if (requestPath === "/api/models/pull") {
+        if (req.method !== "POST") {
+          sendJson(res, 405, { error: "Method Not Allowed" });
+          return;
+        }
+        const body = await readJsonBody(req, MODEL_ROUTE_MAX_BODY_BYTES);
+        if (!body.ok) {
+          sendJson(res, 400, { error: body.error });
+          return;
+        }
+        const tag = getTagFromBody(body.value);
+        if (!tag) {
+          sendJson(res, 400, { error: "Model tag is required" });
+          return;
+        }
+
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("X-Accel-Buffering", "no");
+
+        let terminalProgressSent = false;
+        const writeProgress = (progress: PullProgress) => {
+          if (res.writableEnded || res.destroyed) {
+            return;
+          }
+          res.write(`${JSON.stringify(progress)}\n`);
+          if (progress.status === "complete" || progress.status === "error") {
+            terminalProgressSent = true;
+          }
+        };
+
+        try {
+          await pullModel(tag, MODEL_MANAGER_CONFIG, writeProgress);
+          if (!terminalProgressSent) {
+            writeProgress({
+              status: "complete",
+              model: tag,
+              bytesDownloaded: 0,
+              totalBytes: 0,
+              percentComplete: 100,
+              message: "Download complete",
+            });
+          }
+        } catch (error) {
+          if (!terminalProgressSent) {
+            writeProgress({
+              status: "error",
+              model: tag,
+              bytesDownloaded: 0,
+              totalBytes: 0,
+              percentComplete: 0,
+              message: getErrorMessage(error),
+            });
+          }
+        } finally {
+          if (!res.writableEnded) {
+            res.end();
+          }
+        }
+        return;
+      }
+      if (requestPath.startsWith("/api/models/")) {
+        if (req.method !== "DELETE") {
+          sendJson(res, 405, { error: "Method Not Allowed" });
+          return;
+        }
+        const tag = getTagFromPathname(requestPath);
+        if (!tag) {
+          sendJson(res, 400, { error: "Model tag is required" });
+          return;
+        }
+        try {
+          await deleteModel(tag, MODEL_MANAGER_CONFIG);
+          sendJson(res, 200, { success: true });
+        } catch (error) {
+          const message = getErrorMessage(error);
+          const status = /not found/i.test(message) ? 404 : 400;
+          sendJson(res, status, { error: message });
         }
         return;
       }
