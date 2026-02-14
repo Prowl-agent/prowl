@@ -1,8 +1,8 @@
 import path from "node:path";
 
-export const DEFAULT_CLI_NAME = "prowl";
+export const DEFAULT_CLI_NAME = "openclaw";
 
-const KNOWN_CLI_NAMES = new Set([DEFAULT_CLI_NAME, "openclaw"]);
+const KNOWN_CLI_NAMES = new Set([DEFAULT_CLI_NAME, "prowl"]);
 const CLI_PREFIX_RE = /^(?:((?:pnpm|npm|bunx|npx)\s+))?(?:openclaw|prowl)\b/;
 
 export function resolveCliName(argv: string[] = process.argv): string {
@@ -12,7 +12,7 @@ export function resolveCliName(argv: string[] = process.argv): string {
   }
   const base = path.basename(argv1).trim();
   if (KNOWN_CLI_NAMES.has(base)) {
-    return DEFAULT_CLI_NAME;
+    return base;
   }
   return DEFAULT_CLI_NAME;
 }

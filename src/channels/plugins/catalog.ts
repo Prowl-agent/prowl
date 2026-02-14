@@ -168,13 +168,18 @@ function toChannelMeta(params: {
   };
 }
 
+function canonicalizeInstallNpmSpec(spec: string): string {
+  return spec.replace(/^@prowl\//, "@openclaw/");
+}
+
 function resolveInstallInfo(params: {
   manifest: OpenClawPackageManifest;
   packageName?: string;
   packageDir?: string;
   workspaceDir?: string;
 }): ChannelPluginCatalogEntry["install"] | null {
-  const npmSpec = params.manifest.install?.npmSpec?.trim() ?? params.packageName?.trim();
+  const rawNpmSpec = params.manifest.install?.npmSpec?.trim() ?? params.packageName?.trim();
+  const npmSpec = rawNpmSpec ? canonicalizeInstallNpmSpec(rawNpmSpec) : undefined;
   if (!npmSpec) {
     return null;
   }
