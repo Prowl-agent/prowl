@@ -6,7 +6,8 @@ const {
   detectHardwareMock,
   formatProfileMock,
   recommendModelMock,
-  execaMock,
+  execFileMock,
+  spawnMock,
   fsMkdirMock,
   fsWriteFileMock,
   fsReadFileMock,
@@ -15,7 +16,13 @@ const {
   detectHardwareMock: vi.fn(),
   formatProfileMock: vi.fn(),
   recommendModelMock: vi.fn(),
-  execaMock: vi.fn(),
+  execFileMock: vi.fn(),
+  spawnMock: vi.fn(() => ({
+    stdout: { on: vi.fn() },
+    stderr: { on: vi.fn() },
+    on: vi.fn(),
+    unref: vi.fn(),
+  })),
   fsMkdirMock: vi.fn(),
   fsWriteFileMock: vi.fn(),
   fsReadFileMock: vi.fn(),
@@ -31,8 +38,9 @@ vi.mock("./model-recommend.js", () => ({
   recommendModel: recommendModelMock,
 }));
 
-vi.mock("execa", () => ({
-  execa: execaMock,
+vi.mock("node:child_process", () => ({
+  execFile: execFileMock,
+  spawn: spawnMock,
 }));
 
 vi.mock("node:fs/promises", () => ({
@@ -55,6 +63,30 @@ import {
   type InstallerProgress,
   type ProwlConfig,
 } from "./installer.js";
+
+type ExecFileMockResult = { stdout: string; stderr: string };
+type ExecFileMockCallback = (
+  error: Error | null,
+  stdout: ExecFileMockResult | string,
+  stderr: string,
+) => void;
+
+function resolveExecFileCallback(
+  argsOrCallback: string[] | ExecFileMockCallback | undefined,
+  optionsOrCallback: unknown,
+  maybeCallback: unknown,
+): ExecFileMockCallback {
+  if (typeof argsOrCallback === "function") {
+    return argsOrCallback;
+  }
+  if (typeof optionsOrCallback === "function") {
+    return optionsOrCallback as ExecFileMockCallback;
+  }
+  if (typeof maybeCallback === "function") {
+    return maybeCallback as ExecFileMockCallback;
+  }
+  throw new Error("missing execFile callback");
+}
 
 function makeProfile(overrides: Partial<HardwareProfile> = {}): HardwareProfile {
   return {
@@ -113,7 +145,8 @@ describe("runInstaller", () => {
     detectHardwareMock.mockReset();
     formatProfileMock.mockReset();
     recommendModelMock.mockReset();
-    execaMock.mockReset();
+    execFileMock.mockReset();
+    spawnMock.mockReset();
     fsMkdirMock.mockReset();
     fsWriteFileMock.mockReset();
     fsReadFileMock.mockReset();
@@ -125,6 +158,22 @@ describe("runInstaller", () => {
     fsMkdirMock.mockResolvedValue(undefined);
     fsWriteFileMock.mockResolvedValue(undefined);
     fsReadFileMock.mockResolvedValue(JSON.stringify({ version: "2026.2.13" }));
+    execFileMock.mockImplementation(((
+      _command: string,
+      argsOrCallback: string[] | ExecFileMockCallback | undefined,
+      optionsOrCallback: unknown,
+      maybeCallback: unknown,
+    ) => {
+      const callback = resolveExecFileCallback(argsOrCallback, optionsOrCallback, maybeCallback);
+      callback(null, { stdout: "", stderr: "" }, "");
+      return undefined as never;
+    }) as typeof execFileMock);
+    spawnMock.mockImplementation(() => ({
+      stdout: { on: vi.fn() },
+      stderr: { on: vi.fn() },
+      on: vi.fn(),
+      unref: vi.fn(),
+    }));
   });
 
   it("completes happy path when Ollama is running and model is already present", async () => {
@@ -159,17 +208,10 @@ describe("runInstaller", () => {
       .mockResolvedValueOnce(makeJsonResponse(200, { models: [{ name: "qwen3:8b" }] }))
       .mockResolvedValueOnce(makeJsonResponse(200, { response: "PROWL_READY" }));
 
-    execaMock.mockImplementation((command: string, args: string[]) => {
-      if (command === "ollama" && args[0] === "serve") {
-        return { unref: vi.fn() };
-      }
-      return { stdout: "" };
-    });
-
     const result = await runInstaller();
 
     expect(result.success).toBe(true);
-    expect(execaMock).toHaveBeenCalledWith("ollama", ["serve"], {
+    expect(spawnMock).toHaveBeenCalledWith("ollama", ["serve"], {
       detached: true,
       stdio: "ignore",
     });
@@ -184,15 +226,24 @@ describe("runInstaller", () => {
       .mockResolvedValueOnce(makeJsonResponse(200, { models: [] }))
       .mockResolvedValueOnce(makeJsonResponse(200, { response: "PROWL_READY" }));
 
-    execaMock.mockImplementation((command: string, args: string[]) => {
+    execFileMock.mockImplementation(((
+      command: string,
+      argsOrCallback: string[] | ExecFileMockCallback | undefined,
+      optionsOrCallback: unknown,
+      maybeCallback: unknown,
+    ) => {
+      const args = Array.isArray(argsOrCallback) ? argsOrCallback : [];
+      const callback = resolveExecFileCallback(argsOrCallback, optionsOrCallback, maybeCallback);
       if (command === "ollama" && args[0] === "pull") {
         const stdout = ["pulling manifest 10%", "pulling layer 70%", "pulling layer 100%"].join(
           "\n",
         );
-        return { stdout, all: stdout };
+        callback(null, { stdout, stderr: "" }, "");
+        return undefined as never;
       }
-      return { stdout: "" };
-    });
+      callback(null, { stdout: "", stderr: "" }, "");
+      return undefined as never;
+    }) as typeof execFileMock);
 
     const progressEvents: InstallerProgress[] = [];
     const result = await runInstaller({
@@ -200,7 +251,15 @@ describe("runInstaller", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(execaMock).toHaveBeenCalledWith("ollama", ["pull", "qwen3:8b"], { all: true });
+    expect(execFileMock).toHaveBeenCalledWith(
+      "ollama",
+      ["pull", "qwen3:8b"],
+      {
+        timeout: 0,
+        maxBuffer: 64 * 1024 * 1024,
+      },
+      expect.any(Function),
+    );
     expect(
       progressEvents.some(
         (progress) => progress.phase === "pulling-model" && progress.percentComplete > 50,
