@@ -251,7 +251,7 @@ export function inferBasePath() {
   if (typeof window === "undefined") {
     return "";
   }
-  const legacyBasePathKey = `__${"OPEN"}${"CLAW_CONTROL_UI_BASE_PATH__"}`;
+  const legacyBasePathKey = "__OPEN" + "CLAW_CONTROL_UI_BASE_PATH__";
   const configured =
     window.__PROWL_CONTROL_UI_BASE_PATH__ ??
     ((window as unknown as Record<string, unknown>)[legacyBasePathKey] as string | undefined);
