@@ -1,12 +1,13 @@
 {
-  "name": "openclaw",
+  "name": "prowl",
   "version": "2026.2.15",
   "description": "Multi-channel AI gateway with extensible messaging integrations",
   "keywords": [],
   "license": "MIT",
   "author": "",
   "bin": {
-    "openclaw": "openclaw.mjs"
+    "openclaw": "openclaw.mjs",
+    "prowl": "openclaw.mjs"
   },
   "files": [
     "CHANGELOG.md",

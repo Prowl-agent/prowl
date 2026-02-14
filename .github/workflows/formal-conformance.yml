@@ -16,7 +16,7 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Checkout openclaw (PR)
+      - name: Checkout Prowl (PR)
         uses: actions/checkout@v4
         with:
           path: openclaw
@@ -33,7 +33,7 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Regenerate extracted constants from openclaw
+      - name: Regenerate extracted constants from Prowl
         run: |
           set -euo pipefail
           cd clawdbot-formal-models
@@ -114,7 +114,7 @@ jobs:
             const body = [
               '⚠️ **Formal models conformance drift detected**',
               '',
-              'The formal models extracted constants (`generated/*`) do not match this openclaw PR.',
+              'The formal models extracted constants (`generated/*`) do not match this Prowl PR.',
               '',
               'This check is **informational** (not blocking merges yet).',
               'See the `formal-models-conformance-drift` artifact for the diff.',
