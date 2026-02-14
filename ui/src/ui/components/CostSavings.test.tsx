@@ -53,6 +53,23 @@ const baseReport: SavingsReport = {
 
 const fetchMock = vi.fn<typeof fetch>();
 
+function fetchCallUrl(index: number): string {
+  const input = fetchMock.mock.calls[index]?.[0];
+  if (!input) {
+    return "";
+  }
+  if (typeof input === "string") {
+    return input;
+  }
+  if (input instanceof URL) {
+    return input.toString();
+  }
+  if (typeof Request !== "undefined" && input instanceof Request) {
+    return input.url;
+  }
+  return "";
+}
+
 function makeResponse(payload: SavingsReport, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,
@@ -161,13 +178,13 @@ describe("CostSavings", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await flushEffects();
-    expect(String(fetchMock.mock.calls[0]?.[0] ?? "")).toContain("period=day");
+    expect(fetchCallUrl(0)).toContain("period=day");
 
     fireEvent.click(screen.getByRole("button", { name: "This Month" }));
     await flushEffects();
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(String(fetchMock.mock.calls[1]?.[0] ?? "")).toContain("period=month");
+    expect(fetchCallUrl(1)).toContain("period=month");
   });
 
   it("tab switch re-triggers count-up animation", async () => {

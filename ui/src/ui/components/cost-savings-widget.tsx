@@ -1,9 +1,12 @@
 import React from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { createRoot } from "react-dom/client";
 import CostSavings from "./CostSavings.tsx";
 
 class CostSavingsWidgetElement extends HTMLElement {
-  private root: Root | null = null;
+  private root: {
+    render: (node: unknown) => void;
+    unmount: () => void;
+  } | null = null;
 
   static get observedAttributes(): string[] {
     return ["api-base"];
