@@ -7,7 +7,7 @@ const originalConnect = OpenClawApp.prototype.connect;
 
 function mountApp(pathname: string) {
   window.history.replaceState({}, "", pathname);
-  const app = document.createElement("openclaw-app") as OpenClawApp;
+  const app = document.createElement("prowl-app") as OpenClawApp;
   document.body.append(app);
   return app;
 }

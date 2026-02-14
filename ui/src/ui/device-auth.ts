@@ -5,11 +5,13 @@ import {
   normalizeDeviceAuthScopes,
 } from "../../../src/shared/device-auth.js";
 
-const STORAGE_KEY = "openclaw.device.auth.v1";
+const STORAGE_KEY = "prowl.device.auth.v1";
+const LEGACY_STORAGE_KEY = "openclaw.device.auth.v1";
 
 function readStore(): DeviceAuthStore | null {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw =
+      window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) {
       return null;
     }
@@ -22,6 +24,10 @@ function readStore(): DeviceAuthStore | null {
     }
     if (!parsed.tokens || typeof parsed.tokens !== "object") {
       return null;
+    }
+    if (window.localStorage.getItem(LEGACY_STORAGE_KEY) !== null) {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+      window.localStorage.removeItem(LEGACY_STORAGE_KEY);
     }
     return parsed;
   } catch {

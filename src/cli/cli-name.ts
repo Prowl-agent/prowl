@@ -12,7 +12,7 @@ export function resolveCliName(argv: string[] = process.argv): string {
   }
   const base = path.basename(argv1).trim();
   if (KNOWN_CLI_NAMES.has(base)) {
-    return base;
+    return DEFAULT_CLI_NAME;
   }
   return DEFAULT_CLI_NAME;
 }

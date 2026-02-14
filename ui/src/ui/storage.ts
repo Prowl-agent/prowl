@@ -1,4 +1,5 @@
-const KEY = "openclaw.control.settings.v1";
+const KEY = "prowl.control.settings.v1";
+const LEGACY_KEY = "openclaw.control.settings.v1";
 
 import type { ThemeMode } from "./theme.ts";
 
@@ -35,12 +36,12 @@ export function loadSettings(): UiSettings {
   };
 
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEY) ?? localStorage.getItem(LEGACY_KEY);
     if (!raw) {
       return defaults;
     }
     const parsed = JSON.parse(raw) as Partial<UiSettings>;
-    return {
+    const resolved: UiSettings = {
       gatewayUrl:
         typeof parsed.gatewayUrl === "string" && parsed.gatewayUrl.trim()
           ? parsed.gatewayUrl.trim()
@@ -78,6 +79,11 @@ export function loadSettings(): UiSettings {
           ? parsed.navGroupsCollapsed
           : defaults.navGroupsCollapsed,
     };
+    localStorage.setItem(KEY, JSON.stringify(resolved));
+    if (localStorage.getItem(LEGACY_KEY) !== null) {
+      localStorage.removeItem(LEGACY_KEY);
+    }
+    return resolved;
   } catch {
     return defaults;
   }

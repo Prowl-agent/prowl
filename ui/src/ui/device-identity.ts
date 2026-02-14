@@ -14,7 +14,8 @@ export type DeviceIdentity = {
   privateKey: string;
 };
 
-const STORAGE_KEY = "openclaw-device-identity-v1";
+const STORAGE_KEY = "prowl-device-identity-v1";
+const LEGACY_STORAGE_KEY = "openclaw-device-identity-v1";
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = "";
@@ -59,7 +60,7 @@ async function generateIdentity(): Promise<DeviceIdentity> {
 
 export async function loadOrCreateDeviceIdentity(): Promise<DeviceIdentity> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as StoredIdentity;
       if (
@@ -75,11 +76,18 @@ export async function loadOrCreateDeviceIdentity(): Promise<DeviceIdentity> {
             deviceId: derivedId,
           };
           localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+          if (localStorage.getItem(LEGACY_STORAGE_KEY) !== null) {
+            localStorage.removeItem(LEGACY_STORAGE_KEY);
+          }
           return {
             deviceId: derivedId,
             publicKey: parsed.publicKey,
             privateKey: parsed.privateKey,
           };
+        }
+        if (localStorage.getItem(LEGACY_STORAGE_KEY) !== null) {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+          localStorage.removeItem(LEGACY_STORAGE_KEY);
         }
         return {
           deviceId: parsed.deviceId,
