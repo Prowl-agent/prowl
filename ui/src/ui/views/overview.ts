@@ -126,6 +126,10 @@ export function renderOverview(props: OverviewProps) {
   })();
 
   return html`
+    <section style="margin-bottom: 18px;">
+      <cost-savings-widget></cost-savings-widget>
+    </section>
+
     <section class="grid grid-cols-2">
       <div class="card">
         <div class="card-title">Gateway Access</div>

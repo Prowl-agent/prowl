@@ -11,6 +11,7 @@ import type { CanvasHostHandler } from "../canvas-host/server.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
+import { getSavingsReport } from "../../packages/core/src/analytics/cost-tracker.js";
 import { resolveAgentAvatar } from "../agents/identity-avatar.js";
 import {
   A2UI_PATH,
@@ -80,6 +81,10 @@ type HookDispatchers = {
     allowUnsafeExternalContent?: boolean;
   }) => string;
 };
+
+function isSavingsPeriod(value: string): value is "day" | "month" | "all-time" {
+  return value === "day" || value === "month" || value === "all-time";
+}
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
@@ -482,7 +487,23 @@ export function createGatewayHttpServer(opts: {
     try {
       const configSnapshot = loadConfig();
       const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];
-      const requestPath = new URL(req.url ?? "/", "http://localhost").pathname;
+      const requestUrl = new URL(req.url ?? "/", "http://localhost");
+      const requestPath = requestUrl.pathname;
+      if (requestPath === "/api/savings") {
+        if (req.method !== "GET") {
+          sendJson(res, 405, { error: "Method Not Allowed" });
+          return;
+        }
+        const rawPeriod = requestUrl.searchParams.get("period") ?? "month";
+        const period = isSavingsPeriod(rawPeriod) ? rawPeriod : "month";
+        try {
+          const report = await getSavingsReport(period);
+          sendJson(res, 200, report);
+        } catch {
+          sendJson(res, 500, { error: "Failed to load savings data" });
+        }
+        return;
+      }
       if (await handleHooksRequest(req, res)) {
         return;
       }
