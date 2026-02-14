@@ -132,6 +132,9 @@ export function renderOverview(props: OverviewProps) {
     <section style="margin-bottom: 18px;">
       <model-manager-widget></model-manager-widget>
     </section>
+    <section style="margin-bottom: 18px;">
+      <privacy-dashboard-widget></privacy-dashboard-widget>
+    </section>
 
     <section class="grid grid-cols-2">
       <div class="card">

@@ -22,6 +22,11 @@ import {
   type ModelManagerConfig,
   type PullProgress,
 } from "../../packages/core/src/models/model-manager.js";
+import {
+  exportAuditCSV,
+  getAuditLog,
+  getPrivacyStats,
+} from "../../packages/core/src/privacy/privacy-tracker.js";
 import { resolveAgentAvatar } from "../agents/identity-avatar.js";
 import {
   A2UI_PATH,
@@ -133,6 +138,31 @@ function getTagFromPathname(pathname: string): string {
   } catch {
     return "";
   }
+}
+
+function createZeroPrivacyStats() {
+  return {
+    totalRequests: 0,
+    localRequests: 0,
+    cloudRequests: 0,
+    localPercent: 0,
+    daysFullyLocal: 0,
+    currentStreak: 0,
+    tokensProcessedLocally: 0,
+    tokensProcessedCloud: 0,
+    lastCloudRequest: null,
+  };
+}
+
+function getPrivacyLogLimit(rawLimit: string | null): number {
+  if (!rawLimit) {
+    return 10;
+  }
+  const parsed = Number.parseInt(rawLimit, 10);
+  if (!Number.isFinite(parsed)) {
+    return 10;
+  }
+  return Math.min(50, Math.max(1, parsed));
 }
 
 async function isOllamaRunning(ollamaUrl: string): Promise<boolean> {
@@ -563,6 +593,46 @@ export function createGatewayHttpServer(opts: {
         } catch {
           sendJson(res, 500, { error: "Failed to load savings data" });
         }
+        return;
+      }
+      if (requestPath === "/api/privacy/stats") {
+        if (req.method !== "GET") {
+          sendJson(res, 405, { error: "Method Not Allowed" });
+          return;
+        }
+        try {
+          const stats = await getPrivacyStats();
+          sendJson(res, 200, stats);
+        } catch {
+          sendJson(res, 200, createZeroPrivacyStats());
+        }
+        return;
+      }
+      if (requestPath === "/api/privacy/log") {
+        if (req.method !== "GET") {
+          sendJson(res, 405, { error: "Method Not Allowed" });
+          return;
+        }
+        const limit = getPrivacyLogLimit(requestUrl.searchParams.get("limit"));
+        const entries = await getAuditLog({ limit });
+        sendJson(res, 200, { entries });
+        return;
+      }
+      if (requestPath === "/api/privacy/export-csv") {
+        if (req.method !== "GET") {
+          sendJson(res, 405, { error: "Method Not Allowed" });
+          return;
+        }
+        let csv = "";
+        try {
+          csv = await exportAuditCSV();
+        } catch {
+          csv = "";
+        }
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader("Content-Disposition", 'attachment; filename="prowl-privacy-audit.csv"');
+        res.end(csv);
         return;
       }
       if (requestPath === "/api/models/installed") {
