@@ -1,4 +1,5 @@
 import type { HardwareProfile } from "./hardware-detect.js";
+export type { HardwareProfile } from "./hardware-detect.js";
 
 export interface QuantizationOption {
   name: string;
@@ -108,17 +109,7 @@ const MODELS: ModelSpec[] = [
 ];
 
 function getAvailableModelMemory(profile: HardwareProfile): number {
-  const isAppleSilicon = profile.os === "macos" && profile.unifiedMemory !== null;
-  if (isAppleSilicon) {
-    return profile.unifiedMemory - 6;
-  }
-
-  const hasNvidiaGpu = profile.gpuVRAM !== null && Boolean(profile.gpuName?.match(/nvidia/i));
-  if (hasNvidiaGpu) {
-    return profile.gpuVRAM;
-  }
-
-  return profile.totalRAM - 8;
+  return profile.availableForModelGB;
 }
 
 function chooseQuantization(model: ModelSpec, availableGB: number): string {

@@ -3,15 +3,33 @@ import type { HardwareProfile } from "./hardware-detect.js";
 import { listCompatibleModels, recommendModel } from "./model-recommend.js";
 
 function makeProfile(overrides: Partial<HardwareProfile>): HardwareProfile {
+  const totalRAMGB = overrides.totalRAMGB ?? 32;
+  const unifiedMemoryGB = overrides.unifiedMemoryGB ?? 0;
+  const gpuVRAMGB = overrides.gpuVRAMGB ?? 0;
+  const isAppleSilicon = overrides.isAppleSilicon ?? false;
+  const availableForModelGB =
+    overrides.availableForModelGB ??
+    (isAppleSilicon ? unifiedMemoryGB - 6 : gpuVRAMGB > 0 ? gpuVRAMGB : totalRAMGB - 8);
+
   return {
     os: "linux",
-    chip: "Test CPU",
-    totalRAM: 32,
-    availableRAM: 16,
-    gpuName: null,
-    gpuVRAM: null,
-    unifiedMemory: null,
+    arch: "x64",
+    totalRAMGB,
+    unifiedMemoryGB,
+    gpuVRAMGB,
+    gpu: {
+      vendor: gpuVRAMGB > 0 ? "nvidia" : "unknown",
+      name: gpuVRAMGB > 0 ? "NVIDIA RTX Test" : "Unknown GPU",
+      vramGB: gpuVRAMGB,
+      isAppleSilicon,
+    },
     cpuCores: 8,
+    cpuModel: "Test CPU",
+    isAppleSilicon,
+    availableForModelGB,
+    ollamaInstalled: false,
+    ollamaVersion: null,
+    prowlDataDir: "/tmp/.prowl/models",
     ...overrides,
   };
 }
@@ -20,7 +38,11 @@ describe("recommendModel", () => {
   it("selects qwen3:32b when available memory is >= 40GB", () => {
     const profile = makeProfile({
       os: "macos",
-      unifiedMemory: 46,
+      unifiedMemoryGB: 46,
+      totalRAMGB: 46,
+      isAppleSilicon: true,
+      gpu: { vendor: "apple", name: "Apple M4", vramGB: 0, isAppleSilicon: true },
+      availableForModelGB: 40,
     });
 
     const recommendation = recommendModel(profile);
@@ -35,9 +57,10 @@ describe("recommendModel", () => {
 
   it("selects qwen2.5-coder:14b when NVIDIA VRAM is >= 14GB", () => {
     const profile = makeProfile({
-      gpuName: "NVIDIA RTX 4070",
-      gpuVRAM: 14,
-      totalRAM: 16,
+      gpuVRAMGB: 14,
+      totalRAMGB: 16,
+      gpu: { vendor: "nvidia", name: "NVIDIA RTX 4070", vramGB: 14, isAppleSilicon: false },
+      availableForModelGB: 14,
     });
 
     const recommendation = recommendModel(profile);
@@ -47,7 +70,8 @@ describe("recommendModel", () => {
 
   it("selects qwen3:8b when CPU-only available memory is >= 8GB", () => {
     const profile = makeProfile({
-      totalRAM: 16,
+      totalRAMGB: 16,
+      availableForModelGB: 8,
     });
 
     const recommendation = recommendModel(profile);
@@ -57,7 +81,8 @@ describe("recommendModel", () => {
 
   it("selects qwen3:4b when available memory is >= 4GB", () => {
     const profile = makeProfile({
-      totalRAM: 12,
+      totalRAMGB: 12,
+      availableForModelGB: 4,
     });
 
     const recommendation = recommendModel(profile);
@@ -67,7 +92,8 @@ describe("recommendModel", () => {
 
   it("throws when available memory is below 4GB", () => {
     const profile = makeProfile({
-      totalRAM: 11.5,
+      totalRAMGB: 11.5,
+      availableForModelGB: 3.5,
     });
 
     expect(() => recommendModel(profile)).toThrowError(
@@ -79,7 +105,8 @@ describe("recommendModel", () => {
 describe("listCompatibleModels", () => {
   it("returns all fitting models sorted by quality descending", () => {
     const profile = makeProfile({
-      totalRAM: 22,
+      totalRAMGB: 22,
+      availableForModelGB: 14,
     });
 
     const compatible = listCompatibleModels(profile);
@@ -95,28 +122,32 @@ describe("listCompatibleModels", () => {
 describe("recommendedQuant", () => {
   it("picks Q8_0 when memory is very comfortable", () => {
     const profile = makeProfile({
-      totalRAM: 52,
+      totalRAMGB: 52,
+      availableForModelGB: 44,
     });
     expect(recommendModel(profile).recommendedQuant).toBe("Q8_0");
   });
 
   it("picks Q5_K_M when memory is sufficient but not excessive", () => {
     const profile = makeProfile({
-      totalRAM: 48,
+      totalRAMGB: 48,
+      availableForModelGB: 40,
     });
     expect(recommendModel(profile).recommendedQuant).toBe("Q5_K_M");
   });
 
   it("defaults to Q4_K_M when Q5_K_M threshold is not met", () => {
     const profile = makeProfile({
-      totalRAM: 16,
+      totalRAMGB: 16,
+      availableForModelGB: 8,
     });
     expect(recommendModel(profile).recommendedQuant).toBe("Q4_K_M");
   });
 
   it("falls back to Q3_K_M when memory is tight", () => {
     const profile = makeProfile({
-      totalRAM: 12,
+      totalRAMGB: 12,
+      availableForModelGB: 4,
     });
     expect(recommendModel(profile).recommendedQuant).toBe("Q3_K_M");
   });
