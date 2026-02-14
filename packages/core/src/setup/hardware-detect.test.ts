@@ -1,13 +1,10 @@
+import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { execaMock } = vi.hoisted(() => ({
-  execaMock: vi.fn(),
-}));
-
-vi.mock("execa", () => ({
-  execa: execaMock,
+vi.mock("node:child_process", () => ({
+  execFile: vi.fn(),
 }));
 
 import {
@@ -16,6 +13,30 @@ import {
   getAvailableRAM,
   type HardwareProfile,
 } from "./hardware-detect.js";
+
+type ExecFileMockResult = { stdout: string; stderr: string };
+type ExecFileMockCallback = (
+  error: Error | null,
+  stdout: ExecFileMockResult | string,
+  stderr: string,
+) => void;
+
+function resolveExecFileCallback(
+  argsOrCallback: string[] | ExecFileMockCallback | undefined,
+  optionsOrCallback: unknown,
+  maybeCallback: unknown,
+): ExecFileMockCallback {
+  if (typeof argsOrCallback === "function") {
+    return argsOrCallback;
+  }
+  if (typeof optionsOrCallback === "function") {
+    return optionsOrCallback as ExecFileMockCallback;
+  }
+  if (typeof maybeCallback === "function") {
+    return maybeCallback as ExecFileMockCallback;
+  }
+  throw new Error("missing execFile callback");
+}
 
 function cpuInfo(model: string): os.CpuInfo {
   return {
@@ -37,20 +58,30 @@ function mockPlatform(platform: NodeJS.Platform, arch: string): void {
 }
 
 function mockCommands(outputs: Record<string, string | Error>): void {
-  execaMock.mockImplementation(async (command: string, args: string[] = []) => {
+  vi.mocked(execFile).mockImplementation(((
+    command,
+    argsOrCallback,
+    optionsOrCallback,
+    maybeCallback,
+  ) => {
+    const args = Array.isArray(argsOrCallback) ? argsOrCallback : [];
+    const callback = resolveExecFileCallback(argsOrCallback, optionsOrCallback, maybeCallback);
     const key = [command, ...args].join(" ");
     const output = outputs[key];
 
     if (output === undefined) {
-      throw new Error(`unexpected command: ${key}`);
+      callback(new Error(`unexpected command: ${key}`), "", "");
+      return undefined as never;
     }
 
     if (output instanceof Error) {
-      throw output;
+      callback(output, "", "");
+      return undefined as never;
     }
 
-    return { stdout: output };
-  });
+    callback(null, { stdout: output, stderr: "" }, "");
+    return undefined as never;
+  }) as typeof execFile);
 }
 
 describe("detectHardware", () => {
@@ -60,7 +91,7 @@ describe("detectHardware", () => {
     vi.spyOn(os, "homedir").mockReturnValue("/home/tester");
     vi.spyOn(os, "cpus").mockReturnValue(new Array(8).fill(cpuInfo("Fallback CPU")));
     delete process.env.APPDATA;
-    execaMock.mockReset();
+    vi.mocked(execFile).mockReset();
   });
 
   it("detects Apple Silicon on macOS via system_profiler", async () => {
@@ -199,7 +230,16 @@ describe("detectHardware", () => {
       throw new Error("cpu unavailable");
     });
 
-    execaMock.mockRejectedValue(new Error("command failed"));
+    vi.mocked(execFile).mockImplementation(((
+      command,
+      argsOrCallback,
+      optionsOrCallback,
+      maybeCallback,
+    ) => {
+      const callback = resolveExecFileCallback(argsOrCallback, optionsOrCallback, maybeCallback);
+      callback(new Error("command failed"), "", "");
+      return undefined as never;
+    }) as typeof execFile);
 
     await expect(detectHardware()).resolves.toEqual({
       os: "linux",
