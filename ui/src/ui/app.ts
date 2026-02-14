@@ -78,6 +78,7 @@ import {
 } from "./app-tool-stream.ts";
 import { resolveInjectedAssistantIdentity } from "./assistant-identity.ts";
 import "./components/cost-savings-widget.tsx";
+import "./components/dashboard-shell-widget.tsx";
 import "./components/model-manager-widget.tsx";
 import "./components/privacy-dashboard-widget.tsx";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
@@ -86,7 +87,7 @@ import { type ChatAttachment, type ChatQueueItem, type CronFormState } from "./u
 
 declare global {
   interface Window {
-    __OPENCLAW_CONTROL_UI_BASE_PATH__?: string;
+    __PROWL_CONTROL_UI_BASE_PATH__?: string;
   }
 }
 
@@ -106,7 +107,7 @@ function resolveOnboardingMode(): boolean {
 }
 
 @customElement("prowl-app")
-export class OpenClawApp extends LitElement {
+export class ProwlApp extends LitElement {
   @state() settings: UiSettings = loadSettings();
   @state() password = "";
   @state() tab: Tab = "chat";

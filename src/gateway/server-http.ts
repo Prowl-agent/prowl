@@ -1,5 +1,6 @@
 import type { TlsOptions } from "node:tls";
 import type { WebSocketServer } from "ws";
+import fs from "node:fs/promises";
 import {
   createServer as createHttpServer,
   type Server as HttpServer,
@@ -27,6 +28,8 @@ import {
   getAuditLog,
   getPrivacyStats,
 } from "../../packages/core/src/privacy/privacy-tracker.js";
+import { detectHardware, formatProfile } from "../../packages/core/src/setup/hardware-detect.js";
+import { recommendModel } from "../../packages/core/src/setup/model-recommend.js";
 import { resolveAgentAvatar } from "../agents/identity-avatar.js";
 import {
   A2UI_PATH,
@@ -152,6 +155,68 @@ function createZeroPrivacyStats() {
     tokensProcessedCloud: 0,
     lastCloudRequest: null,
   };
+}
+
+type ConfigModelSnapshot = {
+  model?: unknown;
+};
+
+type SetupRecommendationPayload = {
+  model: string;
+  displayName: string;
+  quality: "basic" | "good" | "great" | "excellent";
+  reason: string;
+  sizeGB: number;
+};
+
+async function readActiveModel(configPath: string): Promise<string> {
+  try {
+    const raw = await fs.readFile(configPath, "utf8");
+    const parsed = JSON.parse(raw) as ConfigModelSnapshot;
+    if (typeof parsed.model !== "string") {
+      return "";
+    }
+    return parsed.model.trim();
+  } catch {
+    return "";
+  }
+}
+
+async function resolveSetupStatus(configPath: string): Promise<{
+  isFirstRun: boolean;
+  hardwareProfile: string;
+  recommendation: SetupRecommendationPayload;
+}> {
+  const [model, profile] = await Promise.all([readActiveModel(configPath), detectHardware()]);
+  const hardwareProfile = formatProfile(profile);
+  const isFirstRun = model.length === 0;
+
+  try {
+    const recommendation = recommendModel(profile);
+    return {
+      isFirstRun,
+      hardwareProfile,
+      recommendation: {
+        model: recommendation.model,
+        displayName: recommendation.displayName,
+        quality: recommendation.quality,
+        reason: recommendation.reason,
+        sizeGB: recommendation.sizeGB,
+      },
+    };
+  } catch (error) {
+    return {
+      isFirstRun,
+      hardwareProfile,
+      recommendation: {
+        model: "qwen3:4b",
+        displayName: "Qwen3 4B",
+        quality: "basic",
+        reason: getErrorMessage(error),
+        sizeGB: 5,
+      },
+    };
+  }
 }
 
 function getPrivacyLogLimit(rawLimit: string | null): number {
@@ -580,6 +645,33 @@ export function createGatewayHttpServer(opts: {
       const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];
       const requestUrl = new URL(req.url ?? "/", "http://localhost");
       const requestPath = requestUrl.pathname;
+      if (requestPath === "/api/health") {
+        if (req.method !== "GET") {
+          sendJson(res, 405, { error: "Method Not Allowed" });
+          return;
+        }
+        const ollamaRunning = await isOllamaRunning(MODEL_MANAGER_CONFIG.ollamaUrl);
+        sendJson(res, 200, { status: "ok", ollamaRunning });
+        return;
+      }
+      if (requestPath === "/api/models/active") {
+        if (req.method !== "GET") {
+          sendJson(res, 405, { error: "Method Not Allowed" });
+          return;
+        }
+        const model = await readActiveModel(MODEL_MANAGER_CONFIG.prowlConfigPath);
+        sendJson(res, 200, { model });
+        return;
+      }
+      if (requestPath === "/api/setup/status") {
+        if (req.method !== "GET") {
+          sendJson(res, 405, { error: "Method Not Allowed" });
+          return;
+        }
+        const status = await resolveSetupStatus(MODEL_MANAGER_CONFIG.prowlConfigPath);
+        sendJson(res, 200, status);
+        return;
+      }
       if (requestPath === "/api/savings") {
         if (req.method !== "GET") {
           sendJson(res, 405, { error: "Method Not Allowed" });

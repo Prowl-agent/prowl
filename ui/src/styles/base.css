@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
-
 :root {
   /* Background - Warmer dark with depth */
   --bg: #12141a;
@@ -110,6 +108,64 @@
   --duration-normal: 200ms;
   --duration-slow: 350ms;
 
+  /* Prowl dashboard theme */
+  --prowl-bg: #0a0f1a;
+  --prowl-surface: #0f172a;
+  --prowl-surface-2: #1e293b;
+  --prowl-border: #1e293b;
+  --prowl-text: #f1f5f9;
+  --prowl-muted: #64748b;
+  --prowl-accent: #10b981;
+  --prowl-accent-dim: #052e16;
+
+  --bg: var(--prowl-bg);
+  --bg-accent: var(--prowl-bg);
+  --bg-elevated: var(--prowl-surface);
+  --bg-hover: #162033;
+  --bg-muted: var(--prowl-surface-2);
+  --bg-content: var(--prowl-bg);
+  --card: var(--prowl-surface);
+  --card-foreground: var(--prowl-text);
+  --card-highlight: rgba(148, 163, 184, 0.05);
+  --popover: var(--prowl-surface);
+  --popover-foreground: var(--prowl-text);
+  --panel: var(--prowl-bg);
+  --panel-strong: var(--prowl-surface);
+  --panel-hover: var(--prowl-surface-2);
+  --chrome: rgba(10, 15, 26, 0.95);
+  --chrome-strong: rgba(10, 15, 26, 0.98);
+  --text: var(--prowl-text);
+  --text-strong: var(--prowl-text);
+  --chat-text: var(--prowl-text);
+  --muted: var(--prowl-muted);
+  --muted-strong: #475569;
+  --muted-foreground: var(--prowl-muted);
+  --border: var(--prowl-border);
+  --border-strong: #334155;
+  --border-hover: #475569;
+  --input: var(--prowl-border);
+  --ring: var(--prowl-accent);
+  --accent: var(--prowl-accent);
+  --accent-hover: #059669;
+  --accent-muted: var(--prowl-accent);
+  --accent-subtle: rgba(16, 185, 129, 0.15);
+  --accent-foreground: #ffffff;
+  --accent-glow: rgba(16, 185, 129, 0.3);
+  --primary: var(--prowl-accent);
+  --primary-foreground: #ffffff;
+  --secondary: var(--prowl-surface-2);
+  --secondary-foreground: var(--prowl-text);
+  --accent-2: #34d399;
+  --accent-2-muted: rgba(52, 211, 153, 0.7);
+  --accent-2-subtle: rgba(52, 211, 153, 0.15);
+  --ok: var(--prowl-accent);
+  --ok-muted: rgba(16, 185, 129, 0.75);
+  --ok-subtle: rgba(16, 185, 129, 0.12);
+  --focus: rgba(16, 185, 129, 0.25);
+  --focus-glow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ring), 0 0 16px var(--accent-glow);
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+
   color-scheme: dark;
 }
 
@@ -191,6 +247,8 @@
 
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: #1e293b #0a0f1a;
 }
 
 html,
@@ -199,11 +257,17 @@ body {
 }
 
 body {
+  background: var(--prowl-bg);
+  color: var(--prowl-text);
   margin: 0;
-  font: 400 14px/1.55 var(--font-body);
+  font:
+    400 14px/1.55 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    system-ui,
+    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   letter-spacing: -0.02em;
-  background: var(--bg);
-  color: var(--text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -277,16 +341,16 @@ select {
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #0a0f1a;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: #1e293b;
   border-radius: var(--radius-full);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--border-strong);
+  background: #334155;
 }
 
 /* Animations - Polished with spring feel */

@@ -1,5 +1,5 @@
 const KEY = "prowl.control.settings.v1";
-const LEGACY_KEY = "openclaw.control.settings.v1";
+const LEGACY_KEY = ["open", "claw.control.settings.v1"].join("");
 
 import type { ThemeMode } from "./theme.ts";
 

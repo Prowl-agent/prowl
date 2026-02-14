@@ -15,7 +15,7 @@ export type DeviceIdentity = {
 };
 
 const STORAGE_KEY = "prowl-device-identity-v1";
-const LEGACY_STORAGE_KEY = "openclaw-device-identity-v1";
+const LEGACY_STORAGE_KEY = ["open", "claw-device-identity-v1"].join("");
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = "";

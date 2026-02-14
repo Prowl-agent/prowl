@@ -6,6 +6,7 @@ const checks = [
   "check-ollama",
   "check-installer",
   "check-cost-tracker",
+  "check-dashboard-ui",
   "check-privacy",
   "check-router",
   "check-hf-search",

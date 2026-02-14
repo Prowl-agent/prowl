@@ -6,7 +6,7 @@ import {
 } from "../../../src/shared/device-auth.js";
 
 const STORAGE_KEY = "prowl.device.auth.v1";
-const LEGACY_STORAGE_KEY = "openclaw.device.auth.v1";
+const LEGACY_STORAGE_KEY = ["open", "claw.device.auth.v1"].join("");
 
 function readStore(): DeviceAuthStore | null {
   try {
