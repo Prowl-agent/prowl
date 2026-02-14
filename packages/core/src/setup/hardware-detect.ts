@@ -1,10 +1,12 @@
-import { execa } from "execa";
+import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 const COMMAND_TIMEOUT_MS = 10_000;
 const BYTES_PER_GB = 1024 ** 3;
 const KIB_PER_GB = 1024 ** 2;
+const execFileAsync = promisify(execFile);
 
 export type ChipVendor = "apple" | "nvidia" | "amd" | "intel" | "unknown";
 export type OSType = "macos" | "linux" | "windows" | "unknown";
@@ -127,8 +129,9 @@ function toOsLabel(osType: OSType): string {
 
 async function runCommand(step: string, command: string, args: string[]): Promise<string | null> {
   try {
-    const { stdout } = await execa(command, args, {
+    const { stdout } = await execFileAsync(command, args, {
       timeout: COMMAND_TIMEOUT_MS,
+      maxBuffer: 10 * 1024 * 1024,
     });
     return stdout.trim();
   } catch (error) {

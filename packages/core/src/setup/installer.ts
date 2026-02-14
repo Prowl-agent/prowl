@@ -1,9 +1,10 @@
-import { execa } from "execa";
+import { execFile, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { detectHardware, formatProfile, type HardwareProfile } from "./hardware-detect.js";
 import { recommendModel, type ModelRecommendation } from "./model-recommend.js";
 
@@ -13,6 +14,8 @@ const OLLAMA_PING_TIMEOUT_MS = 2_000;
 const VERIFICATION_TIMEOUT_MS = 45_000;
 const OLLAMA_START_TIMEOUT_MS = 10_000;
 const OLLAMA_START_POLL_INTERVAL_MS = 500;
+const COMMAND_MAX_BUFFER = 64 * 1024 * 1024;
+const execFileAsync = promisify(execFile);
 
 const FALLBACK_MODEL = "qwen3:4b";
 
@@ -78,18 +81,20 @@ function getErrorMessage(error: unknown): string {
 
 function getExecaErrorMessage(error: unknown): string {
   const data = error as {
-    stderr?: string;
-    stdout?: string;
+    stderr?: string | Buffer;
+    stdout?: string | Buffer;
     shortMessage?: string;
     message?: string;
   };
 
-  const stderr = data.stderr?.trim();
+  const stderr =
+    typeof data.stderr === "string" ? data.stderr.trim() : data.stderr?.toString().trim();
   if (stderr) {
     return stderr;
   }
 
-  const stdout = data.stdout?.trim();
+  const stdout =
+    typeof data.stdout === "string" ? data.stdout.trim() : data.stdout?.toString().trim();
   if (stdout) {
     return stdout;
   }
@@ -206,19 +211,26 @@ function emitProgress(options: InstallerOptions | undefined, progress: Installer
 
 async function installViaCurlScript(): Promise<void> {
   const installerPath = "/tmp/ollama-install.sh";
-  await execa("curl", ["-fsSL", "https://ollama.com/install.sh", "-o", installerPath]);
-  await execa("sh", [installerPath]);
+  await execFileAsync("curl", ["-fsSL", "https://ollama.com/install.sh", "-o", installerPath], {
+    timeout: 0,
+    maxBuffer: COMMAND_MAX_BUFFER,
+  });
+  await execFileAsync("sh", [installerPath], {
+    timeout: 0,
+    maxBuffer: COMMAND_MAX_BUFFER,
+  });
 }
 
 async function pullModelWithProgress(
   modelTag: string,
   options: InstallerOptions | undefined,
 ): Promise<void> {
-  const pullResult = await execa("ollama", ["pull", modelTag], {
-    all: true,
+  const pullResult = await execFileAsync("ollama", ["pull", modelTag], {
+    timeout: 0,
+    maxBuffer: COMMAND_MAX_BUFFER,
   });
 
-  const output = [pullResult.all, pullResult.stdout].filter(Boolean).join("\n");
+  const output = [pullResult.stdout, pullResult.stderr].filter(Boolean).join("\n");
   const lines = output.split(/\r?\n/).filter((line) => line.trim().length > 0);
 
   for (const line of lines) {
@@ -278,11 +290,11 @@ export async function isOllamaRunning(): Promise<boolean> {
 }
 
 export async function startOllamaService(): Promise<void> {
-  const process = execa("ollama", ["serve"], {
+  const process = spawn("ollama", ["serve"], {
     detached: true,
     stdio: "ignore",
   });
-  process.unref?.();
+  process.unref();
 
   const deadline = Date.now() + OLLAMA_START_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -456,7 +468,10 @@ export async function runInstaller(options?: InstallerOptions): Promise<Installe
       try {
         if (profile.os === "macos") {
           try {
-            await execa("brew", ["install", "ollama"]);
+            await execFileAsync("brew", ["install", "ollama"], {
+              timeout: 0,
+              maxBuffer: COMMAND_MAX_BUFFER,
+            });
           } catch (error) {
             if (!isCommandNotFound(error, "brew")) {
               throw error;
