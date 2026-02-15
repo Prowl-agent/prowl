@@ -12,6 +12,7 @@
  *
  * @see https://platform.openai.com/docs/guides/text-to-speech
  */
+import { resolveOpenAiAudioSpeechUrl } from "./openai-endpoints.js";
 
 /**
  * OpenAI TTS configuration.
@@ -19,6 +20,8 @@
 export interface OpenAITTSConfig {
   /** OpenAI API key (uses OPENAI_API_KEY env if not set) */
   apiKey?: string;
+  /** OpenAI-compatible API base URL (default: https://api.openai.com/v1) */
+  baseUrl?: string;
   /**
    * TTS model:
    * - gpt-4o-mini-tts: newest, supports instructions for tone/style control (recommended)
@@ -69,6 +72,7 @@ export type OpenAITTSVoice = (typeof OPENAI_TTS_VOICES)[number];
  */
 export class OpenAITTSProvider {
   private apiKey: string;
+  private audioSpeechUrl: string;
   private model: string;
   private voice: OpenAITTSVoice;
   private speed: number;
@@ -76,6 +80,9 @@ export class OpenAITTSProvider {
 
   constructor(config: OpenAITTSConfig = {}) {
     this.apiKey = config.apiKey || process.env.OPENAI_API_KEY || "";
+    this.audioSpeechUrl = resolveOpenAiAudioSpeechUrl(
+      config.baseUrl || process.env.OPENAI_TTS_BASE_URL || process.env.OPENAI_BASE_URL,
+    );
     // Default to gpt-4o-mini-tts for intelligent realtime applications
     this.model = config.model || "gpt-4o-mini-tts";
     // Default to coral - good balance of quality and natural tone
@@ -108,7 +115,7 @@ export class OpenAITTSProvider {
       body.instructions = effectiveInstructions;
     }
 
-    const response = await fetch("https://api.openai.com/v1/audio/speech", {
+    const response = await fetch(this.audioSpeechUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.apiKey}`,

@@ -9,6 +9,7 @@
  */
 
 import WebSocket from "ws";
+import { resolveOpenAiRealtimeWebSocketUrl } from "./openai-endpoints.js";
 
 /**
  * Configuration for OpenAI Realtime STT.
@@ -16,6 +17,8 @@ import WebSocket from "ws";
 export interface RealtimeSTTConfig {
   /** OpenAI API key */
   apiKey: string;
+  /** OpenAI-compatible API base URL (default: https://api.openai.com/v1) */
+  baseUrl?: string;
   /** Model to use (default: gpt-4o-transcribe) */
   model?: string;
   /** Silence duration in ms before considering speech ended (default: 800) */
@@ -52,6 +55,7 @@ export interface RealtimeSTTSession {
 export class OpenAIRealtimeSTTProvider {
   readonly name = "openai-realtime";
   private apiKey: string;
+  private realtimeWebSocketUrl: string;
   private model: string;
   private silenceDurationMs: number;
   private vadThreshold: number;
@@ -61,6 +65,9 @@ export class OpenAIRealtimeSTTProvider {
       throw new Error("OpenAI API key required for Realtime STT");
     }
     this.apiKey = config.apiKey;
+    this.realtimeWebSocketUrl = resolveOpenAiRealtimeWebSocketUrl(
+      config.baseUrl || process.env.OPENAI_REALTIME_BASE_URL || process.env.OPENAI_BASE_URL,
+    );
     this.model = config.model || "gpt-4o-transcribe";
     this.silenceDurationMs = config.silenceDurationMs || 800;
     this.vadThreshold = config.vadThreshold || 0.5;
@@ -72,6 +79,7 @@ export class OpenAIRealtimeSTTProvider {
   createSession(): RealtimeSTTSession {
     return new OpenAIRealtimeSTTSession(
       this.apiKey,
+      this.realtimeWebSocketUrl,
       this.model,
       this.silenceDurationMs,
       this.vadThreshold,
@@ -97,6 +105,7 @@ class OpenAIRealtimeSTTSession implements RealtimeSTTSession {
 
   constructor(
     private readonly apiKey: string,
+    private readonly realtimeWebSocketUrl: string,
     private readonly model: string,
     private readonly silenceDurationMs: number,
     private readonly vadThreshold: number,
@@ -110,9 +119,7 @@ class OpenAIRealtimeSTTSession implements RealtimeSTTSession {
 
   private async doConnect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const url = "wss://api.openai.com/v1/realtime?intent=transcription";
-
-      this.ws = new WebSocket(url, {
+      this.ws = new WebSocket(this.realtimeWebSocketUrl, {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           "OpenAI-Beta": "realtime=v1",

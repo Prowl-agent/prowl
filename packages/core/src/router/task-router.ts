@@ -1,4 +1,8 @@
-import { CLOUD_PRICING, type CloudPricing, type CloudProvider } from "../analytics/cost-tracker.js";
+import {
+  getCloudPricing,
+  type CloudPricing,
+  type CloudProvider,
+} from "../analytics/cost-tracker.js";
 
 export type RouteDecision = "local" | "cloud" | "hybrid";
 export type TaskComplexity = "simple" | "moderate" | "complex" | "very-complex";
@@ -57,7 +61,7 @@ function findCloudPricing(config: RouterConfig): CloudPricing | undefined {
     return undefined;
   }
 
-  return CLOUD_PRICING.find(
+  return getCloudPricing().find(
     (pricing) => pricing.provider === config.cloudProvider && pricing.model === config.cloudModel,
   );
 }

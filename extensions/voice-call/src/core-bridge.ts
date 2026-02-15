@@ -7,6 +7,9 @@ export type CoreConfig = {
   session?: {
     store?: string;
   };
+  models?: {
+    providers?: Record<string, { baseUrl?: string }>;
+  };
   messages?: {
     tts?: VoiceCallTtsConfig;
   };

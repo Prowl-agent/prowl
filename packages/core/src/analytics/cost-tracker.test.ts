@@ -72,17 +72,21 @@ vi.mock("node:fs/promises", () => ({
 
 import {
   calculateCloudCost,
+  clearCloudPricingOverride,
   clearAnalytics,
   CLOUD_PRICING,
   formatSavings,
+  getCloudPricing,
   getRunningTotal,
   getSavingsReport,
   recordInference,
+  setCloudPricingOverride,
 } from "./cost-tracker.js";
 
 const analyticsDir = path.join("/home/tester", ".prowl", "analytics");
 const inferencesPath = path.join(analyticsDir, "inferences.jsonl");
 const totalsPath = path.join(analyticsDir, "totals.json");
+const originalCloudPricingEnv = process.env.OPENCLAW_CLOUD_PRICING_JSON;
 
 function seedInferences(records: Array<Record<string, unknown>>): void {
   const lines = records.map((record) => JSON.stringify(record)).join("\n");
@@ -101,10 +105,18 @@ describe("cost-tracker", () => {
     randomUUIDMock.mockReturnValue("test-uuid-123");
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-14T12:00:00.000Z"));
+    clearCloudPricingOverride();
+    delete process.env.OPENCLAW_CLOUD_PRICING_JSON;
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    clearCloudPricingOverride();
+    if (originalCloudPricingEnv === undefined) {
+      delete process.env.OPENCLAW_CLOUD_PRICING_JSON;
+    } else {
+      process.env.OPENCLAW_CLOUD_PRICING_JSON = originalCloudPricingEnv;
+    }
   });
 
   it("recordInference creates record with id/timestamp and appends to inferences file", async () => {
@@ -147,6 +159,32 @@ describe("cost-tracker", () => {
     expect(totals.totalPromptTokens).toBe(1_000);
     expect(totals.totalCompletionTokens).toBe(500);
     expect(totals.allTimeSavingsUSD).toBeCloseTo(0.0075);
+  });
+
+  it("recordInference uses overridden gpt-4o prices when provided", async () => {
+    setCloudPricingOverride([
+      {
+        provider: "openai",
+        model: "gpt-4o",
+        inputPricePer1kTokens: 1,
+        outputPricePer1kTokens: 2,
+      },
+    ]);
+
+    await recordInference({
+      localModel: "qwen3:8b",
+      promptTokens: 1_000,
+      completionTokens: 500,
+      durationMs: 1_000,
+      tokensPerSecond: 30,
+      taskType: "agent",
+    });
+
+    const totals = JSON.parse(fileState.files.get(totalsPath) ?? "{}") as {
+      allTimeSavingsUSD: number;
+    };
+
+    expect(totals.allTimeSavingsUSD).toBeCloseTo(2);
   });
 
   it("getSavingsReport filters inferences by period", async () => {
@@ -243,6 +281,42 @@ describe("cost-tracker", () => {
     expect(report.bestSavingsUSD).toBeCloseTo(report.cloudEquivalents[0].estimatedCostUSD);
   });
 
+  it("getSavingsReport uses OPENCLAW_CLOUD_PRICING_JSON when provided", async () => {
+    process.env.OPENCLAW_CLOUD_PRICING_JSON = JSON.stringify([
+      {
+        provider: "openai",
+        model: "gpt-4o",
+        inputPricePer1kTokens: 1,
+        outputPricePer1kTokens: 1,
+      },
+    ]);
+    seedInferences([
+      {
+        id: "one",
+        timestamp: "2026-02-14T11:00:00.000Z",
+        localModel: "qwen3:8b",
+        promptTokens: 1_000,
+        completionTokens: 1_000,
+        durationMs: 2_000,
+        tokensPerSecond: 42,
+        taskType: "chat",
+      },
+    ]);
+
+    const report = await getSavingsReport("all-time");
+
+    expect(report.cloudEquivalents).toEqual([
+      {
+        provider: "openai",
+        model: "gpt-4o",
+        estimatedCostUSD: 2,
+        savingsUSD: 2,
+        savingsPercent: 100,
+      },
+    ]);
+    expect(report.bestSavingsProvider).toBe("openai gpt-4o");
+  });
+
   it("getRunningTotal reads totals.json and formats savings", async () => {
     fileState.files.set(
       totalsPath,
@@ -277,6 +351,34 @@ describe("cost-tracker", () => {
     );
     expect(pricing).toBeDefined();
     expect(calculateCloudCost(2_000, 3_000, pricing!)).toBeCloseTo(0.035);
+  });
+
+  it("runtime cloud pricing override takes precedence over env override", () => {
+    process.env.OPENCLAW_CLOUD_PRICING_JSON = JSON.stringify([
+      {
+        provider: "openai",
+        model: "gpt-4o",
+        inputPricePer1kTokens: 0.1,
+        outputPricePer1kTokens: 0.1,
+      },
+    ]);
+    setCloudPricingOverride([
+      {
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        inputPricePer1kTokens: 0.2,
+        outputPricePer1kTokens: 0.3,
+      },
+    ]);
+
+    expect(getCloudPricing()).toEqual([
+      {
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        inputPricePer1kTokens: 0.2,
+        outputPricePer1kTokens: 0.3,
+      },
+    ]);
   });
 
   it("clearAnalytics removes inferences and totals files", async () => {

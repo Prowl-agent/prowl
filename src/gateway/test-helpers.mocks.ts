@@ -9,6 +9,7 @@ import type { AgentBinding } from "../config/types.agents.js";
 import type { HooksConfig } from "../config/types.hooks.js";
 import type { TailscaleWhoisIdentity } from "../infra/tailscale.js";
 import type { PluginRegistry } from "../plugins/registry.js";
+import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
 import { applyPluginAutoEnable } from "../config/plugin-auto-enable.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
 import { DEFAULT_ACCOUNT_ID } from "../routing/session-key.js";
@@ -404,7 +405,7 @@ vi.mock("../config/config.js", async () => {
           ? (fileAgents.defaults as Record<string, unknown>)
           : {};
       const defaults = {
-        model: { primary: "anthropic/claude-opus-4-6" },
+        model: { primary: `${DEFAULT_PROVIDER}/${DEFAULT_MODEL}` },
         workspace: path.join(os.tmpdir(), "openclaw-gateway-test"),
         ...fileDefaults,
         ...testState.agentConfig,

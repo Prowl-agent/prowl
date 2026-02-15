@@ -106,9 +106,119 @@ export const CLOUD_PRICING: CloudPricing[] = [
   },
 ];
 
-const PRIMARY_COMPARISON = CLOUD_PRICING.find(
+const SUPPORTED_CLOUD_PROVIDERS: CloudProvider[] = new Set([
+  "openai",
+  "anthropic",
+  "google",
+  "groq",
+]);
+
+const DEFAULT_PRIMARY_COMPARISON = CLOUD_PRICING.find(
   (pricing) => pricing.provider === "openai" && pricing.model === "gpt-4o",
 )!;
+
+let runtimeCloudPricingOverride: CloudPricing[] | undefined;
+let parsedEnvCloudPricing: { raw: string | undefined; pricing: CloudPricing[] | undefined } = {
+  raw: undefined,
+  pricing: undefined,
+};
+
+function isCloudProvider(value: unknown): value is CloudProvider {
+  return typeof value === "string" && SUPPORTED_CLOUD_PROVIDERS.has(value as CloudProvider);
+}
+
+function isTokenPrice(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function normalizeCloudPricing(value: unknown): CloudPricing[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const normalized: CloudPricing[] = [];
+
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      continue;
+    }
+
+    const parsedEntry = entry as Record<string, unknown>;
+    const provider = parsedEntry.provider;
+    const model = parsedEntry.model;
+    const inputPricePer1kTokens = parsedEntry.inputPricePer1kTokens;
+    const outputPricePer1kTokens = parsedEntry.outputPricePer1kTokens;
+
+    if (
+      !isCloudProvider(provider) ||
+      typeof model !== "string" ||
+      model.trim().length === 0 ||
+      !isTokenPrice(inputPricePer1kTokens) ||
+      !isTokenPrice(outputPricePer1kTokens)
+    ) {
+      continue;
+    }
+
+    normalized.push({
+      provider,
+      model: model.trim(),
+      inputPricePer1kTokens,
+      outputPricePer1kTokens,
+    });
+  }
+
+  return normalized;
+}
+
+function getEnvCloudPricingOverride(): CloudPricing[] | undefined {
+  const raw = process.env.OPENCLAW_CLOUD_PRICING_JSON;
+  if (raw === parsedEnvCloudPricing.raw) {
+    return parsedEnvCloudPricing.pricing;
+  }
+
+  let pricing: CloudPricing[] | undefined;
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      const normalized = normalizeCloudPricing(parsed);
+      pricing = normalized.length > 0 ? normalized : undefined;
+    } catch {
+      pricing = undefined;
+    }
+  }
+
+  parsedEnvCloudPricing = {
+    raw,
+    pricing,
+  };
+  return pricing;
+}
+
+function getPrimaryComparison(pricing: CloudPricing[]): CloudPricing {
+  return (
+    pricing.find((entry) => entry.provider === "openai" && entry.model === "gpt-4o") ??
+    DEFAULT_PRIMARY_COMPARISON
+  );
+}
+
+export function setCloudPricingOverride(pricing: CloudPricing[] | undefined): void {
+  if (!pricing) {
+    runtimeCloudPricingOverride = undefined;
+    return;
+  }
+
+  const normalized = normalizeCloudPricing(pricing);
+  runtimeCloudPricingOverride = normalized.length > 0 ? normalized : undefined;
+}
+
+export function clearCloudPricingOverride(): void {
+  runtimeCloudPricingOverride = undefined;
+}
+
+export function getCloudPricing(): CloudPricing[] {
+  const resolved = runtimeCloudPricingOverride ?? getEnvCloudPricingOverride() ?? CLOUD_PRICING;
+  return resolved.map((pricing) => ({ ...pricing }));
+}
 
 function getAnalyticsDir(): string {
   return path.join(os.homedir(), ".prowl", "analytics");
@@ -277,6 +387,8 @@ export async function recordInference(
   record: Omit<InferenceRecord, "id" | "timestamp">,
 ): Promise<InferenceRecord> {
   await initAnalytics();
+  const cloudPricing = getCloudPricing();
+  const primaryComparison = getPrimaryComparison(cloudPricing);
 
   const nowIso = new Date().toISOString();
   const completeRecord: InferenceRecord = {
@@ -297,7 +409,7 @@ export async function recordInference(
       calculateCloudCost(
         completeRecord.promptTokens,
         completeRecord.completionTokens,
-        PRIMARY_COMPARISON,
+        primaryComparison,
       ),
     lastUpdated: nowIso,
   };
@@ -308,6 +420,7 @@ export async function recordInference(
 
 export async function getSavingsReport(period: SavingsReport["period"]): Promise<SavingsReport> {
   await initAnalytics();
+  const cloudPricing = getCloudPricing();
 
   const nowMs = Date.now();
   const cutoff = getCutoffTimestamp(period, nowMs);
@@ -325,16 +438,22 @@ export async function getSavingsReport(period: SavingsReport["period"]): Promise
       ? records.reduce((sum, record) => sum + record.tokensPerSecond, 0) / totalInferences
       : 0;
 
-  const cloudEquivalents = CLOUD_PRICING.map((pricing) => {
-    const estimatedCostUSD = calculateCloudCost(totalPromptTokens, totalCompletionTokens, pricing);
-    return {
-      provider: pricing.provider,
-      model: pricing.model,
-      estimatedCostUSD,
-      savingsUSD: estimatedCostUSD,
-      savingsPercent: 100,
-    } satisfies CloudEquivalent;
-  }).toSorted((a, b) => b.estimatedCostUSD - a.estimatedCostUSD);
+  const cloudEquivalents = cloudPricing
+    .map((pricing) => {
+      const estimatedCostUSD = calculateCloudCost(
+        totalPromptTokens,
+        totalCompletionTokens,
+        pricing,
+      );
+      return {
+        provider: pricing.provider,
+        model: pricing.model,
+        estimatedCostUSD,
+        savingsUSD: estimatedCostUSD,
+        savingsPercent: 100,
+      } satisfies CloudEquivalent;
+    })
+    .toSorted((a, b) => b.estimatedCostUSD - a.estimatedCostUSD);
 
   const best = cloudEquivalents[0];
 
