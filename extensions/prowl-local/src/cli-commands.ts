@@ -7,8 +7,11 @@
 import type { Command } from "commander";
 import type { TaskCategory } from "../../../packages/core/src/benchmark/types.js";
 import {
+  formatConsoleReport,
+  writeAllReports,
+} from "../../../packages/core/src/benchmark/reporter.js";
+import {
   DEFAULT_BENCHMARK_CONFIG,
-  formatSummaryTable,
   runBenchmark,
   type BenchmarkConfig,
 } from "../../../packages/core/src/benchmark/runner.js";
@@ -192,9 +195,16 @@ export function registerBenchmarkCommand(program: Command): void {
           }
         });
 
-        console.log(formatSummaryTable(results.summary));
+        // Write all report formats (console txt, markdown, JSON, history)
+        const paths = await writeAllReports(results, config.outputDir);
+
+        // Print the pretty console report
+        console.log(formatConsoleReport(results));
         console.log(`\nCompleted: ${completed}  Errors: ${errored}`);
-        console.log(`Results written to: ${config.outputDir}/`);
+        console.log(`\nReports written:`);
+        console.log(`  Markdown:  ${paths.markdown}`);
+        console.log(`  JSON:      ${paths.json}`);
+        console.log(`  History:   ${paths.history}`);
       } catch (err) {
         console.error(`\nBenchmark failed: ${err instanceof Error ? err.message : String(err)}`);
         process.exitCode = 1;

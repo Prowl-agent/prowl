@@ -1,7 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { BenchmarkTask, TaskCategory } from "./types.js";
-import { optimizeModelPrompt } from "../optimizer/model-prompt-optimizer.js";
+import {
+  optimizeModelPrompt,
+  type OptimizedPromptResult,
+} from "../optimizer/model-prompt-optimizer.js";
 import { detectHardware, type HardwareProfile } from "../setup/hardware-detect.js";
 import { scoreTask, type ScorerOptions, type TaskScore } from "./scorer.js";
 import { BENCHMARK_TASKS } from "./tasks.js";
