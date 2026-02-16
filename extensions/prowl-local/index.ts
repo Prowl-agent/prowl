@@ -6,6 +6,7 @@
  * functionality lives here so the upstream OpenClaw core remains unmodified.
  */
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import { registerBenchmarkCommand } from "./src/cli-commands.js";
 import {
   createHealthHandler,
   createModelsActiveHandler,
@@ -84,6 +85,14 @@ export function register(api: OpenClawPluginApi): void {
     path: "/api/privacy/export-csv",
     handler: createPrivacyExportCsvHandler(),
   });
+
+  // ── CLI Commands ───────────────────────────────────────────────────
+  api.registerCli(
+    ({ program }) => {
+      registerBenchmarkCommand(program);
+    },
+    { commands: ["benchmark"] },
+  );
 
   api.logger.info("Prowl local-first plugin registered");
 }
