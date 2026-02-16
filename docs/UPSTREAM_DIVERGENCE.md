@@ -155,6 +155,25 @@ with them.
 
 ---
 
+## Environment Variable Mapping
+
+Prowl uses `PROWL_*` env vars that get synced to `OPENCLAW_*` by the boot
+shim (`src/prowl-shim.ts`). The mapping is mechanical: `PROWL_<SUFFIX>` →
+`OPENCLAW_<SUFFIX>`. PROWL always takes priority when both are set.
+
+| Prowl variable           | Maps to                     | Purpose                                       |
+| ------------------------ | --------------------------- | --------------------------------------------- |
+| `PROWL_STATE_DIR`        | `OPENCLAW_STATE_DIR`        | Where Prowl stores data (default: `~/.prowl`) |
+| `PROWL_HOME`             | `OPENCLAW_HOME`             | Home directory for path resolution            |
+| `PROWL_DEFAULT_PROVIDER` | `OPENCLAW_DEFAULT_PROVIDER` | Default LLM provider (default: `ollama`)      |
+| `PROWL_DEFAULT_MODEL`    | `OPENCLAW_DEFAULT_MODEL`    | Default model (default: `qwen3:8b`)           |
+
+**Important:** `PROWL_HOME` controls home-directory resolution, NOT the data
+directory. To change where Prowl stores its state/config, use
+`PROWL_STATE_DIR`. The default data directory is `~/.prowl`.
+
+---
+
 ## Merge Conflict Resolution Guide
 
 When merging `upstream/main`:

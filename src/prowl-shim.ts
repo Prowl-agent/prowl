@@ -45,6 +45,9 @@ export function syncProwlEnv(env: NodeJS.ProcessEnv = process.env): void {
   }
 
   // Default state dir to ~/.prowl when no explicit override is set.
+  // Note: PROWL_STATE_DIR → OPENCLAW_STATE_DIR (controls data/state directory).
+  // PROWL_HOME → OPENCLAW_HOME (controls home directory for path resolution).
+  // These are NOT the same — use PROWL_STATE_DIR to change where Prowl stores data.
   if (!env.OPENCLAW_STATE_DIR && !env.PROWL_STATE_DIR) {
     const prowlDir = path.join(os.homedir(), ".prowl");
     env.OPENCLAW_STATE_DIR = prowlDir;
