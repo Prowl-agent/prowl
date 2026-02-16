@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "./prowl-shim.js"; // Prowl boot shim — sets PROWL_*/OPENCLAW_* env before anything else.
 import { spawn } from "node:child_process";
 import process from "node:process";
 import { applyCliProfileEnv, parseCliProfileArgs } from "./cli/profile.js";

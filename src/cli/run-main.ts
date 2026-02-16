@@ -8,6 +8,7 @@ import { ensureOpenClawCliOnPath } from "../infra/path-env.js";
 import { assertSupportedRuntime } from "../infra/runtime-guard.js";
 import { installUnhandledRejectionHandler } from "../infra/unhandled-rejections.js";
 import { enableConsoleCapture } from "../logging.js";
+import { syncProwlEnv } from "../prowl-shim.js";
 import { getCommandPath, getPrimaryCommand, hasHelpOrVersion } from "./argv.js";
 import { tryRouteCli } from "./route.js";
 import { normalizeWindowsArgv } from "./windows-argv.js";
@@ -64,6 +65,7 @@ export function shouldEnsureCliPath(argv: string[]): boolean {
 export async function runCli(argv: string[] = process.argv) {
   const normalizedArgv = normalizeWindowsArgv(argv);
   loadDotEnv({ quiet: true });
+  syncProwlEnv(); // Re-sync after .env may have added new PROWL_* vars.
   normalizeEnv();
   if (shouldEnsureCliPath(normalizedArgv)) {
     ensureOpenClawCliOnPath();
