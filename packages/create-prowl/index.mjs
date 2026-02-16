@@ -7,14 +7,10 @@
  * Detects hardware, installs Ollama, pulls the right model, and sets up Prowl.
  */
 
-import { execSync, spawn, execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { execSync, spawn } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir, platform, totalmem, cpus, arch } from "node:os";
 import { join, dirname } from "node:path";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
 
 // Dynamic imports for ESM-only deps
 const chalk = (await import("chalk")).default;
@@ -176,7 +172,7 @@ async function stepCheckOllama(spinner) {
         execSync("curl -fsSL https://ollama.com/install.sh | sh", { stdio: "pipe", shell: true });
       }
       spinner.succeed(chalk.green("Ollama installed"));
-    } catch (err) {
+    } catch {
       spinner.fail("Could not install Ollama automatically.");
       console.log(chalk.yellow("  Install manually from https://ollama.com and re-run."));
       process.exit(1);
