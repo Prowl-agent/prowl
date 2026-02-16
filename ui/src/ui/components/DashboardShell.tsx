@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import AppShell from "./AppShell.tsx";
 import CostSavings from "./CostSavings.tsx";
+import GettingStarted from "./GettingStarted.tsx";
 import ModelManager from "./ModelManager.tsx";
 import PrivacyDashboard from "./PrivacyDashboard.tsx";
 import SetupWizard, { type SetupRecommendation } from "./SetupWizard.tsx";
@@ -145,6 +146,7 @@ export default function DashboardShell({ apiBase = "" }: DashboardShellProps) {
 
       <AppShell apiBase={base}>
         <div className="dashboard-grid">
+          <GettingStarted apiBase={base} />
           <CostSavings apiBase={base} />
           <div className="dashboard-grid-middle">
             <ModelManager apiBase={base} />
