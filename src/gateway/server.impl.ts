@@ -50,6 +50,7 @@ import { runOnboardingWizard } from "../wizard/onboarding.js";
 import { createAuthRateLimiter, type AuthRateLimiter } from "./auth-rate-limit.js";
 import { startGatewayConfigReloader } from "./config-reload.js";
 import { ExecApprovalManager } from "./exec-approval-manager.js";
+import { maybeAutoLaunchDashboard } from "./first-run.js";
 import { NodeRegistry } from "./node-registry.js";
 import { createChannelManager } from "./server-channels.js";
 import { createAgentEventHandler } from "./server-chat.js";
@@ -600,6 +601,16 @@ export async function startGatewayServer(
   if (!minimalTestGateway) {
     scheduleGatewayUpdateCheck({ cfg: cfgAtStart, log, isNixMode });
   }
+
+  // Auto-launch dashboard in browser on first run
+  if (!minimalTestGateway) {
+    maybeAutoLaunchDashboard({
+      configExists: configSnapshot.exists,
+      port,
+      log,
+    });
+  }
+
   const tailscaleCleanup = minimalTestGateway
     ? null
     : await startGatewayTailscaleExposure({
