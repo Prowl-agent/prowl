@@ -8,8 +8,19 @@ import { refreshChat } from "./app-chat.ts";
 import { syncUrlWithSessionKey } from "./app-settings.ts";
 import { ProwlApp } from "./app.ts";
 import { ChatState, loadChatHistory } from "./controllers/chat.ts";
+import { loadDebug, type DebugState } from "./controllers/debug.ts";
+import { patchSession, type SessionsState } from "./controllers/sessions.ts";
 import { icons } from "./icons.ts";
 import { iconForTab, pathForTab, titleForTab, type Tab } from "./navigation.ts";
+
+export type ModelCatalogEntry = {
+  id: string;
+  name: string;
+  provider: string;
+  contextWindow?: number;
+  reasoning?: boolean;
+  input?: Array<"text" | "image">;
+};
 
 type SessionDefaultsSnapshot = {
   mainSessionKey?: string;
@@ -35,10 +46,10 @@ function resetChatStateForSessionSwitch(state: AppViewState, sessionKey: string)
   state.sessionKey = sessionKey;
   state.chatMessage = "";
   state.chatStream = null;
-  (state as unknown as OpenClawApp).chatStreamStartedAt = null;
+  (state as unknown as ProwlApp).chatStreamStartedAt = null;
   state.chatRunId = null;
-  (state as unknown as OpenClawApp).resetToolStream();
-  (state as unknown as OpenClawApp).resetChatScroll();
+  state.resetToolStream();
+  state.resetChatScroll();
   state.applySettings({
     ...state.settings,
     sessionKey,
@@ -126,8 +137,36 @@ export function renderChatControls(state: AppViewState) {
       <circle cx="12" cy="12" r="3"></circle>
     </svg>
   `;
+  if (state.connected && state.debugModels.length === 0 && !state.debugLoading) {
+    void loadDebug(state as unknown as DebugState);
+  }
+
+  const activeSession = state.sessionsResult?.sessions?.find((s) => s.key === state.sessionKey);
+  const models = (state.debugModels as ModelCatalogEntry[]) || [];
+
   return html`
     <div class="chat-controls">
+      <label class="field chat-controls__model" title="Select Model">
+        <select
+          .value=${activeSession?.model ?? ""}
+          ?disabled=${!state.connected}
+          @change=${(e: Event) => {
+            const next = (e.target as HTMLSelectElement).value;
+            void patchSession(state as unknown as SessionsState, state.sessionKey, {
+              model: next || null,
+            });
+          }}
+        >
+          <option value="">Default Model</option>
+          ${repeat(
+            models,
+            (m) => `${m.provider}:${m.id}`,
+            (m) => html`
+              <option value=${m.id}>${m.name} (${m.provider})</option>
+            `,
+          )}
+        </select>
+      </label>
       <label class="field chat-controls__session">
         <select
           .value=${state.sessionKey}

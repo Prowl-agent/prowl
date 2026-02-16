@@ -5,6 +5,7 @@ import { createAgentSession, SessionManager, SettingsManager } from "@mariozechn
 import fs from "node:fs/promises";
 import os from "node:os";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
+import { routeMessage } from "../../../../packages/core/src/router/prowl-router-integration.js";
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
 import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
 import { getMachineDisplayName } from "../../../infra/machine-name.js";
@@ -872,6 +873,20 @@ export async function runEmbeddedAttempt(
           } catch (hookErr) {
             log.warn(`before_agent_start hook failed: ${String(hookErr)}`);
           }
+        }
+
+        // ── Prowl task router: get routing decision (observe mode) ──────────
+        const routingDecision = await routeMessage(
+          effectivePrompt,
+          undefined,
+          tools?.length ? tools : undefined,
+        );
+        log.debug(
+          `[prowl-router] route=${routingDecision.route} complexity=${routingDecision.complexity} ` +
+            `reasoning="${routingDecision.reasoning}" runId=${params.runId}`,
+        );
+        if (routingDecision.warnings.length > 0) {
+          log.debug(`[prowl-router] warnings: ${routingDecision.warnings.join("; ")}`);
         }
 
         log.debug(`embedded run prompt start: runId=${params.runId} sessionId=${params.sessionId}`);

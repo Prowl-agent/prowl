@@ -67,6 +67,50 @@ export async function runCli(argv: string[] = process.argv) {
   loadDotEnv({ quiet: true });
   syncProwlEnv(); // Re-sync after .env may have added new PROWL_* vars.
   normalizeEnv();
+
+  // First-run auto-model detection: if no config.json exists, detect hardware
+  // and pick the best model. This only runs once; subsequent starts read the
+  // saved config synchronously in prowl-shim.ts.
+  try {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { homedir } = await import("node:os");
+    const configPath = join(homedir(), ".prowl", "config.json");
+    try {
+      readFileSync(configPath);
+    } catch {
+      // Config doesn't exist — first run. Auto-detect the best model.
+      const { resolveAutoModel } = await import("../../packages/core/src/setup/auto-model.js");
+      const result = await resolveAutoModel({
+        onProgress: (msg: string) => console.log(`[prowl] ${msg}`),
+      });
+      // Update env so the rest of this startup uses the auto-detected model.
+      process.env.OPENCLAW_DEFAULT_MODEL = result.model;
+      process.env.OPENCLAW_DEFAULT_PROVIDER = result.provider;
+    }
+  } catch {
+    // Auto-model detection is best-effort; don't block startup.
+  }
+
+  // Warm-on-boot: pre-load the model into GPU/RAM in the background so
+  // the first chat message doesn't pay cold-start latency.
+  try {
+    const { readWarmupConfig, warmModel, startKeepAlive } =
+      await import("../../packages/core/src/perf/model-warmup.js");
+    const warmupCfg = readWarmupConfig();
+    const currentModel = process.env.OPENCLAW_DEFAULT_MODEL;
+    if (warmupCfg.warmOnBoot && currentModel) {
+      // Fire-and-forget: don't block CLI startup.
+      void warmModel(currentModel).then(() => {
+        if (warmupCfg.keepAlive) {
+          startKeepAlive(currentModel);
+        }
+      });
+    }
+  } catch {
+    // Warm-up is best-effort.
+  }
+
   if (shouldEnsureCliPath(normalizedArgv)) {
     ensureOpenClawCliOnPath();
   }

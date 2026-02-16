@@ -129,44 +129,59 @@ export default function CostSavings({ className, apiBase = "" }: CostSavingsProp
   };
 
   useEffect(() => {
-    const controller = new AbortController();
     const period = PERIOD_BY_TAB[activeTab];
     const base = normalizeApiBase(apiBase);
-    const url = `${base}/api/savings?period=${period}`;
+    const url = `${base}/api/prowl/savings?period=${period}`;
+    let activeController: AbortController | null = null;
 
-    setLoading(true);
-    setError(null);
+    const fetchData = async (isInitial = false) => {
+      if (activeController) {
+        activeController.abort();
+      }
+      activeController = new AbortController();
 
-    void (async () => {
+      if (isInitial) {
+        setLoading(true);
+      }
+      setError(null);
+
       try {
         const response = await fetch(url, {
           method: "GET",
-          signal: controller.signal,
+          signal: activeController.signal,
         });
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
 
-        const payload = (await response.json()) as SavingsReport;
-        if (controller.signal.aborted) {
+        const payload = (await response.json()) as { report: SavingsReport };
+        if (activeController.signal.aborted) {
           return;
         }
 
-        setReport(payload);
+        setReport(payload.report);
         setLoading(false);
-        animateTo(payload.bestSavingsUSD);
+        animateTo(payload.report.bestSavingsUSD);
       } catch {
-        if (controller.signal.aborted) {
+        if (activeController.signal.aborted) {
           return;
         }
         setLoading(false);
-        setReport(null);
-        setError("Unable to load savings data");
+        if (isInitial) {
+          setReport(null);
+          setError("Unable to load savings data");
+        }
       }
-    })();
+    };
+
+    void fetchData(true);
+    const interval = setInterval(() => void fetchData(), 10000);
 
     return () => {
-      controller.abort();
+      if (activeController) {
+        activeController.abort();
+      }
+      clearInterval(interval);
       clearAnimation();
     };
   }, [activeTab, apiBase]);

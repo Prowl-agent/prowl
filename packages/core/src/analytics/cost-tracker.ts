@@ -36,6 +36,7 @@ export interface SavingsReport {
   bestSavingsProvider: string;
   avgTokensPerSecond: number;
   totalDurationMs: number;
+  daysTracked: number;
 }
 
 export interface CloudEquivalent {
@@ -555,6 +556,7 @@ export async function getSavingsReport(period: SavingsReport["period"]): Promise
     bestSavingsProvider: best ? `${best.provider} ${best.model}` : "",
     avgTokensPerSecond,
     totalDurationMs,
+    daysTracked: new Set(records.map((r) => r.timestamp.split("T")[0])).size,
   };
 }
 

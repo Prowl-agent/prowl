@@ -47,6 +47,8 @@ export default function AppShell({ children, apiBase = "" }: AppShellProps) {
   const [ollamaRunning, setOllamaRunning] = useState(false);
   const [activeModel, setActiveModel] = useState("No active model");
   const [showTooltip, setShowTooltip] = useState(false);
+  const [startingOllama, setStartingOllama] = useState(false);
+  const refreshRef = React.useRef<() => Promise<void>>();
 
   const healthState = deriveHealthState(ollamaRunning, activeModel);
 
@@ -89,6 +91,7 @@ export default function AppShell({ children, apiBase = "" }: AppShellProps) {
       }
     };
 
+    refreshRef.current = refreshHeader;
     void refreshHeader();
     const intervalId = window.setInterval(() => {
       void refreshHeader();
@@ -99,6 +102,21 @@ export default function AppShell({ children, apiBase = "" }: AppShellProps) {
       window.clearInterval(intervalId);
     };
   }, [base]);
+
+  const handleStartOllama = async () => {
+    setStartingOllama(true);
+    try {
+      const res = await fetch(`${base}/api/ollama/start`, { method: "POST" });
+      const data = (await res.json()) as { ok?: boolean; started?: boolean };
+      if (data.ok) {
+        setShowTooltip(false);
+        // Re-check health after a short delay so Ollama has time to bind.
+        setTimeout(() => void refreshRef.current?.(), 3500);
+      }
+    } finally {
+      setStartingOllama(false);
+    }
+  };
 
   return (
     <div className="prowl-app-shell" data-testid="app-shell">
@@ -197,6 +215,25 @@ export default function AppShell({ children, apiBase = "" }: AppShellProps) {
           font-family: monospace;
           font-size: 12px;
           color: #e2e8f0;
+        }
+        .prowl-health-tooltip-start {
+          display: block;
+          margin-top: 10px;
+          padding: 6px 12px;
+          background: #22c55e;
+          color: #0f172a;
+          border: none;
+          border-radius: 6px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .prowl-health-tooltip-start:hover:not(:disabled) {
+          background: #16a34a;
+        }
+        .prowl-health-tooltip-start:disabled {
+          opacity: 0.7;
+          cursor: not-allowed;
         }
         .prowl-model {
           color: #94a3b8;
@@ -303,6 +340,15 @@ export default function AppShell({ children, apiBase = "" }: AppShellProps) {
                     Prowl needs Ollama to run AI models locally. Start it with:
                     <code className="prowl-health-tooltip-code">ollama serve</code>
                   </div>
+                  <button
+                    type="button"
+                    className="prowl-health-tooltip-start"
+                    onClick={handleStartOllama}
+                    disabled={startingOllama}
+                    data-testid="health-tooltip-start-ollama"
+                  >
+                    {startingOllama ? "Starting…" : "Start Ollama"}
+                  </button>
                 </>
               ) : healthState === "no-model" ? (
                 <>

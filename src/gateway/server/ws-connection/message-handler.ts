@@ -354,6 +354,7 @@ export function attachGatewayWsMessageHandler(params: {
           rateLimiter: hasDeviceTokenCandidate ? undefined : rateLimiter,
           clientIp,
           rateLimitScope: AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET,
+          allowLoopbackControlUiWithoutToken: isControlUi,
         });
 
         if (

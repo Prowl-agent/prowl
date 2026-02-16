@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { parseNdjsonStream } from "../../packages/core/src/llm/stream-handler.js";
 import {
   createOllamaStreamFn,
   convertToOllamaMessages,
   buildAssistantMessage,
-  parseNdjsonStream,
 } from "./ollama-stream.js";
 
 describe("convertToOllamaMessages", () => {
@@ -150,6 +150,17 @@ describe("buildAssistantMessage", () => {
   });
 });
 
+interface MockOllamaChunk {
+  message: {
+    role: "assistant";
+    content: string;
+    tool_calls?: Array<{ function: { name: string; arguments: Record<string, unknown> } }>;
+  };
+  done: boolean;
+  prompt_eval_count?: number;
+  eval_count?: number;
+}
+
 // Helper: build a ReadableStreamDefaultReader from NDJSON lines
 function mockNdjsonReader(lines: string[]): ReadableStreamDefaultReader<Uint8Array> {
   const encoder = new TextEncoder();
@@ -176,8 +187,8 @@ describe("parseNdjsonStream", () => {
       '{"model":"m","created_at":"t","message":{"role":"assistant","content":" world"},"done":false}',
       '{"model":"m","created_at":"t","message":{"role":"assistant","content":""},"done":true,"prompt_eval_count":5,"eval_count":2}',
     ]);
-    const chunks = [];
-    for await (const chunk of parseNdjsonStream(reader)) {
+    const chunks: MockOllamaChunk[] = [];
+    for await (const chunk of parseNdjsonStream<MockOllamaChunk>(reader)) {
       chunks.push(chunk);
     }
     expect(chunks).toHaveLength(3);
@@ -192,8 +203,8 @@ describe("parseNdjsonStream", () => {
       '{"model":"m","created_at":"t","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"bash","arguments":{"command":"ls"}}}]},"done":false}',
       '{"model":"m","created_at":"t","message":{"role":"assistant","content":""},"done":true,"prompt_eval_count":10,"eval_count":5}',
     ]);
-    const chunks = [];
-    for await (const chunk of parseNdjsonStream(reader)) {
+    const chunks: MockOllamaChunk[] = [];
+    for await (const chunk of parseNdjsonStream<MockOllamaChunk>(reader)) {
       chunks.push(chunk);
     }
     expect(chunks).toHaveLength(2);
@@ -215,8 +226,8 @@ describe("parseNdjsonStream", () => {
     const accumulatedToolCalls: Array<{
       function: { name: string; arguments: Record<string, unknown> };
     }> = [];
-    const chunks = [];
-    for await (const chunk of parseNdjsonStream(reader)) {
+    const chunks: MockOllamaChunk[] = [];
+    for await (const chunk of parseNdjsonStream<MockOllamaChunk>(reader)) {
       chunks.push(chunk);
       if (chunk.message?.tool_calls) {
         accumulatedToolCalls.push(...chunk.message.tool_calls);
@@ -248,7 +259,7 @@ describe("createOllamaStreamFn", () => {
     try {
       const streamFn = createOllamaStreamFn("http://ollama-host:11434/v1/");
       const signal = new AbortController().signal;
-      const stream = streamFn(
+      const stream = await streamFn(
         {
           id: "qwen3:32b",
           api: "ollama",
@@ -271,7 +282,7 @@ describe("createOllamaStreamFn", () => {
       expect(events.at(-1)?.type).toBe("done");
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
-      const [url, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const [url, requestInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
       expect(url).toBe("http://ollama-host:11434/api/chat");
       expect(requestInit.signal).toBe(signal);
       if (typeof requestInit.body !== "string") {
@@ -281,7 +292,9 @@ describe("createOllamaStreamFn", () => {
       const requestBody = JSON.parse(requestInit.body) as {
         options: { num_ctx?: number; num_predict?: number };
       };
-      expect(requestBody.options.num_ctx).toBe(131072);
+      // Optimizer resolves num_ctx dynamically based on model tier.
+      // qwen3:32b is a "large" tier model → 32768 context window.
+      expect(requestBody.options.num_ctx).toBe(32768);
       expect(requestBody.options.num_predict).toBe(123);
     } finally {
       globalThis.fetch = originalFetch;

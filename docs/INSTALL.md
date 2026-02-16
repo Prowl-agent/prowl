@@ -129,6 +129,8 @@ The dashboard opens at [http://localhost:18789](http://localhost:18789).
 
 ### First Launch
 
+You do **not** need to run `prowl setup` before starting. The gateway starts without an existing config file and creates a minimal one automatically so the dashboard and setup wizard work on first run.
+
 On first launch, Prowl automatically opens the dashboard at `http://localhost:18789` in your browser. If it doesn't open automatically, navigate there manually.
 
 ### What Gets Installed Where
@@ -144,12 +146,12 @@ On first launch, Prowl automatically opens the dashboard at `http://localhost:18
 ### Starting Prowl After Installation
 
 ```bash
-prowl                    # if the shell alias was added
+prowl                    # if the shell alias was added (runs gateway with first-run support)
 # or
-cd ~/.prowl/app && pnpm start
+cd ~/.prowl/app && pnpm start gateway run --allow-unconfigured
 ```
 
-The dashboard is always at [http://localhost:18789](http://localhost:18789).
+The alias and installer use `--allow-unconfigured` so the gateway starts even when no config file exists yet (e.g. first time or after a clean install). The dashboard is always at [http://localhost:18789](http://localhost:18789).
 
 ### Changing Your Model
 

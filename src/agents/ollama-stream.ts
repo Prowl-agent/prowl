@@ -9,6 +9,30 @@ import type {
 } from "@mariozechner/pi-ai";
 import { createAssistantMessageEventStream } from "@mariozechner/pi-ai";
 import { randomUUID } from "node:crypto";
+import {
+  ProwlInferenceMiddleware,
+  createProwlInferenceConfig,
+} from "../../packages/core/src/llm/prowl-inference-middleware.js";
+import { parseNdjsonStream } from "../../packages/core/src/llm/stream-handler.js";
+import {
+  readWarmupConfig,
+  buildKeepAliveParam,
+} from "../../packages/core/src/perf/model-warmup.js";
+import {
+  createPerfTrace,
+  finalizePerfTrace,
+  logPerfTrace,
+  type OllamaTimings,
+} from "../../packages/core/src/perf/perf-trace.js";
+
+// ── Prowl prompt optimizer (singleton, lazy init) ───────────────────────────
+let prowlMiddleware: ProwlInferenceMiddleware | null = null;
+function getProwlMiddleware(): ProwlInferenceMiddleware {
+  if (!prowlMiddleware) {
+    prowlMiddleware = new ProwlInferenceMiddleware(createProwlInferenceConfig());
+  }
+  return prowlMiddleware;
+}
 
 export const OLLAMA_NATIVE_BASE_URL = "http://127.0.0.1:11434";
 
@@ -20,6 +44,9 @@ interface OllamaChatRequest {
   stream: boolean;
   tools?: OllamaTool[];
   options?: Record<string, unknown>;
+  keep_alive?: string;
+  /** Disable Qwen3/DeepSeek-R1 internal thinking mode to avoid hidden token waste. */
+  think?: boolean;
 }
 
 interface OllamaChatMessage {
@@ -231,48 +258,6 @@ export function buildAssistantMessage(
   };
 }
 
-// ── NDJSON streaming parser ─────────────────────────────────────────────────
-
-export async function* parseNdjsonStream(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-): AsyncGenerator<OllamaChatResponse> {
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) {
-        continue;
-      }
-      try {
-        yield JSON.parse(trimmed) as OllamaChatResponse;
-      } catch {
-        console.warn("[ollama-stream] Skipping malformed NDJSON line:", trimmed.slice(0, 120));
-      }
-    }
-  }
-
-  if (buffer.trim()) {
-    try {
-      yield JSON.parse(buffer.trim()) as OllamaChatResponse;
-    } catch {
-      console.warn(
-        "[ollama-stream] Skipping malformed trailing data:",
-        buffer.trim().slice(0, 120),
-      );
-    }
-  }
-}
-
 // ── Main StreamFn factory ───────────────────────────────────────────────────
 
 function resolveOllamaChatUrl(baseUrl: string): string {
@@ -290,16 +275,60 @@ export function createOllamaStreamFn(baseUrl: string): StreamFn {
 
     const run = async () => {
       try {
-        const ollamaMessages = convertToOllamaMessages(
-          context.messages ?? [],
-          context.systemPrompt,
-        );
+        const trace = createPerfTrace(model.id, chatUrl);
+
+        let ollamaMessages = convertToOllamaMessages(context.messages ?? [], context.systemPrompt);
 
         const ollamaTools = extractOllamaTools(context.tools);
 
-        // Ollama defaults to num_ctx=4096 which is too small for large
-        // system prompts + many tool definitions. Use model's contextWindow.
-        const ollamaOptions: Record<string, unknown> = { num_ctx: model.contextWindow ?? 65536 };
+        // ── Prowl optimizer: rewrite system prompt + set optimal sampling ───
+        const optimized = getProwlMiddleware().optimizeRequest(
+          model.id,
+          ollamaMessages,
+          ollamaTools.length > 0 ? ollamaTools : undefined,
+        );
+        let detectedTaskType: string = "unknown";
+
+        // Smart context sizing: allocate only what's needed instead of 64K.
+        // Reverted to safe static cap (8192) to prevent potential Ollama hangs/reloads.
+        // const contextConfig = readContextConfig();
+        // const estimatedTokenCount = estimateMessageTokens(
+        //   context.messages ?? [],
+        //   context.systemPrompt,
+        // );
+        // const maxOutput = typeof options?.maxTokens === "number" ? options.maxTokens : 4096;
+        // const numCtx = computeNumCtx(
+        //   estimatedTokenCount,
+        //   maxOutput,
+        //   contextConfig,
+        //   model.contextWindow,
+        // );
+
+        // Use optimizer-resolved context window when available, else safe static default.
+        let numCtx = 8192;
+        const ollamaOptions: Record<string, unknown> = { num_ctx: numCtx };
+
+        if (optimized) {
+          ollamaMessages = optimized.messages as OllamaChatMessage[];
+          detectedTaskType = optimized.taskType;
+          // Merge optimizer sampling params
+          if (optimized.options.temperature !== undefined) {
+            ollamaOptions.temperature = optimized.options.temperature;
+          }
+          if (optimized.options.top_p !== undefined) {
+            ollamaOptions.top_p = optimized.options.top_p;
+          }
+          if (optimized.options.num_predict !== undefined) {
+            ollamaOptions.num_predict = optimized.options.num_predict;
+          }
+          if (optimized.options.num_ctx !== undefined) {
+            numCtx = optimized.options.num_ctx;
+            ollamaOptions.num_ctx = numCtx;
+          }
+        }
+        trace.numCtx = numCtx;
+
+        // Caller overrides take precedence over optimizer defaults
         if (typeof options?.temperature === "number") {
           ollamaOptions.temperature = options.temperature;
         }
@@ -307,12 +336,21 @@ export function createOllamaStreamFn(baseUrl: string): StreamFn {
           ollamaOptions.num_predict = options.maxTokens;
         }
 
+        // Keep-alive: tell Ollama to keep the model loaded.
+        const warmupConfig = readWarmupConfig();
+        const keepAlive = buildKeepAliveParam(warmupConfig);
+
         const body: OllamaChatRequest = {
           model: model.id,
           messages: ollamaMessages,
           stream: true,
           ...(ollamaTools.length > 0 ? { tools: ollamaTools } : {}),
           options: ollamaOptions,
+          // Disable Qwen3/DeepSeek-R1 internal "thinking" mode.
+          // Without this, qwen3:8b generates 150-2000 hidden reasoning tokens
+          // before producing any visible response (~20s for "say hi" vs ~4s).
+          think: false,
+          ...(keepAlive ? { keep_alive: keepAlive } : {}),
         };
 
         const headers: Record<string, string> = {
@@ -343,10 +381,50 @@ export function createOllamaStreamFn(baseUrl: string): StreamFn {
         let accumulatedContent = "";
         const accumulatedToolCalls: OllamaToolCall[] = [];
         let finalResponse: OllamaChatResponse | undefined;
+        let firstTokenAt = 0;
+        let textStreamStarted = false;
+        const contentIndex = 0;
 
-        for await (const chunk of parseNdjsonStream(reader)) {
+        // Build a partial AssistantMessage that evolves as tokens stream in.
+        const partial: AssistantMessage = {
+          role: "assistant" as const,
+          content: [],
+          api: model.api,
+          provider: model.provider,
+          model: model.id,
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: "stop" as StopReason,
+          timestamp: Date.now(),
+        };
+
+        // Push a start event so the UI knows the response has begun.
+        stream.push({ type: "start", partial });
+
+        for await (const chunk of parseNdjsonStream<OllamaChatResponse>(reader, {
+          loggerName: "ollama-stream",
+        })) {
           if (chunk.message?.content) {
-            accumulatedContent += chunk.message.content;
+            const delta = chunk.message.content;
+
+            // First visible token — mark TTFT and emit text_start.
+            if (!textStreamStarted && delta.length > 0) {
+              firstTokenAt = Date.now();
+              textStreamStarted = true;
+              partial.content = [{ type: "text" as const, text: "" }];
+              stream.push({ type: "text_start", contentIndex, partial });
+            }
+
+            // Stream each token to the UI immediately.
+            accumulatedContent += delta;
+            (partial.content[contentIndex] as TextContent).text = accumulatedContent;
+            stream.push({ type: "text_delta", contentIndex, delta, partial });
           }
 
           // Ollama sends tool_calls in intermediate (done:false) chunks,
@@ -359,6 +437,16 @@ export function createOllamaStreamFn(baseUrl: string): StreamFn {
             finalResponse = chunk;
             break;
           }
+        }
+
+        // Close the text stream if we started one.
+        if (textStreamStarted) {
+          stream.push({
+            type: "text_end",
+            contentIndex,
+            content: accumulatedContent,
+            partial,
+          });
         }
 
         if (!finalResponse) {
@@ -378,6 +466,30 @@ export function createOllamaStreamFn(baseUrl: string): StreamFn {
 
         const reason: Extract<StopReason, "stop" | "length" | "toolUse"> =
           assistantMessage.stopReason === "toolUse" ? "toolUse" : "stop";
+
+        // Log perf trace.
+        const timings: OllamaTimings = {
+          total_duration: finalResponse.total_duration,
+          load_duration: finalResponse.load_duration,
+          prompt_eval_count: finalResponse.prompt_eval_count,
+          prompt_eval_duration: finalResponse.prompt_eval_duration,
+          eval_count: finalResponse.eval_count,
+          eval_duration: finalResponse.eval_duration,
+        };
+        const finalTrace = finalizePerfTrace(trace, timings, firstTokenAt, numCtx);
+        logPerfTrace(finalTrace);
+
+        // Record inference for Prowl cost analytics (best-effort, never throws).
+        getProwlMiddleware()
+          .recordCompletion(
+            finalResponse.prompt_eval_count ?? 0,
+            finalResponse.eval_count ?? 0,
+            finalTrace.totalMs,
+            finalTrace.tokensPerSec,
+            detectedTaskType as "chat" | "code" | "agent" | "tool" | "unknown",
+            model.id,
+          )
+          .catch(() => {});
 
         stream.push({
           type: "done",

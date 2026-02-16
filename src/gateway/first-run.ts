@@ -81,6 +81,8 @@ export function openBrowser(url: string): void {
 /**
  * If this is a first-run, open the dashboard URL in the browser after a short
  * delay (gives the HTTP server time to be fully ready).
+ * When PROWL_OPEN_DASHBOARD_ON_START=1 (e.g. after bootstrapping config with
+ * --allow-unconfigured), open the dashboard once even if config now exists.
  *
  * Call this from the gateway startup after the HTTP server is listening.
  */
@@ -90,6 +92,19 @@ export function maybeAutoLaunchDashboard(opts: {
   delayMs?: number;
   log?: { info: (msg: string) => void };
 }): void {
+  const openFromEnv = process.env.PROWL_OPEN_DASHBOARD_ON_START === "1";
+  if (openFromEnv) {
+    delete process.env.PROWL_OPEN_DASHBOARD_ON_START;
+    const delayMs = opts.delayMs ?? 1500;
+    const url = `http://localhost:${opts.port}`;
+    opts.log?.info(`Opening dashboard at ${url} in ${delayMs}ms`);
+    setTimeout(() => {
+      openBrowser(url);
+      markFirstRunComplete();
+    }, delayMs);
+    return;
+  }
+
   if (!isFirstRun(opts.configExists)) {
     return;
   }

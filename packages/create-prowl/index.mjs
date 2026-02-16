@@ -370,7 +370,11 @@ async function main() {
   if (startNow) {
     const startSpinner = ora("  Starting Prowl...").start();
     const pm = commandExists("pnpm") ? "pnpm" : "npm";
-    const child = spawn(pm, ["start"], { cwd: PROWL_DIR, detached: true, stdio: "ignore" });
+    const child = spawn(pm, ["start", "gateway", "run", "--allow-unconfigured"], {
+      cwd: PROWL_DIR,
+      detached: true,
+      stdio: "ignore",
+    });
     child.unref();
     await new Promise((r) => setTimeout(r, 3000));
 

@@ -212,6 +212,34 @@ export async function resolveApiKeyForProvider(params: {
     return resolveAwsSdkAuthInfo();
   }
 
+  // Special handling for Ollama (keyless local provider)
+  if (normalized === "ollama") {
+    // Check if Ollama is running before throwing auth error
+    try {
+      const ollamaCheck = await fetch("http://127.0.0.1:11434/api/tags", {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (!ollamaCheck.ok) {
+        throw new Error(`Ollama is not running. Start it with: ollama serve`);
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new Error(`Ollama is not running. Start it with: ollama serve`, { cause: err });
+      }
+      throw new Error(`Ollama is not running. Start it with: ollama serve`, { cause: err });
+    }
+    // If Ollama is running but no auth profile exists, this is a configuration issue
+    const authStorePath = resolveAuthStorePathForDisplay(params.agentDir);
+    throw new Error(
+      [
+        `No API key found for provider "ollama".`,
+        `Auth store: ${authStorePath}.`,
+        `Ollama is a local provider and should work without an API key.`,
+        `This may indicate a configuration issue.`,
+      ].join(" "),
+    );
+  }
+
   if (provider === "openai") {
     const hasCodex = listProfilesForProvider(store, "openai-codex").length > 0;
     if (hasCodex) {

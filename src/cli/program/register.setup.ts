@@ -25,6 +25,7 @@ export function registerSetupCommand(program: Command) {
     .option("--mode <mode>", "Wizard mode: local|remote")
     .option("--remote-url <url>", "Remote Gateway WebSocket URL")
     .option("--remote-token <token>", "Remote Gateway token (optional)")
+    .option("--auto-model", "Auto-detect hardware and select the best local model", false)
     .action(async (opts, command) => {
       await runCommandWithRuntime(defaultRuntime, async () => {
         const hasWizardFlags = hasExplicitOptions(command, [
@@ -34,6 +35,19 @@ export function registerSetupCommand(program: Command) {
           "remoteUrl",
           "remoteToken",
         ]);
+
+        // Handle --auto-model: detect hardware and select the best model.
+        if (opts.autoModel && !hasWizardFlags && !opts.wizard) {
+          const { resolveAutoModel } =
+            await import("../../../packages/core/src/setup/auto-model.js");
+          const result = await resolveAutoModel({
+            onProgress: (msg: string) => console.log(`[auto-model] ${msg}`),
+          });
+          console.log(
+            `\n✓ Model: ${result.model} (${result.source === "config" ? "from saved config" : "auto-detected"})`,
+          );
+        }
+
         if (opts.wizard || hasWizardFlags) {
           await onboardCommand(
             {

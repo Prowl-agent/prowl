@@ -274,8 +274,12 @@ export default function PrivacyDashboard({ className, apiBase = "" }: PrivacyDas
 
   const refreshData = useCallback(
     async (signal?: AbortSignal) => {
-      const [statsResponse, logResponse] = await Promise.all([
-        fetch(`${base}/api/privacy/stats`, {
+      const [statsResponse, privacyResponse, logResponse] = await Promise.all([
+        fetch(`${base}/api/prowl/stats`, {
+          method: "GET",
+          signal,
+        }),
+        fetch(`${base}/api/prowl/privacy`, {
           method: "GET",
           signal,
         }),
@@ -285,12 +289,13 @@ export default function PrivacyDashboard({ className, apiBase = "" }: PrivacyDas
         }),
       ]);
 
-      if (!statsResponse.ok || !logResponse.ok) {
+      if (!statsResponse.ok || !privacyResponse.ok || !logResponse.ok) {
         throw new Error("Failed to fetch privacy data");
       }
 
-      const [statsPayload, logPayload] = await Promise.all([
+      const [statsPayload, privacyPayload, logPayload] = await Promise.all([
         statsResponse.json(),
+        privacyResponse.json(),
         logResponse.json(),
       ]);
 
@@ -298,7 +303,11 @@ export default function PrivacyDashboard({ className, apiBase = "" }: PrivacyDas
         return;
       }
 
-      setStats(normalizeStats(statsPayload));
+      setStats({
+        ...normalizeStats(statsPayload),
+        daysFullyLocal: (privacyPayload as { privacyStreak?: number }).privacyStreak ?? 0,
+        currentStreak: (privacyPayload as { privacyStreak?: number }).privacyStreak ?? 0,
+      });
       setEntries(normalizeEntries(logPayload).slice(0, 10));
       setLastUpdatedAtMs(Date.now());
     },

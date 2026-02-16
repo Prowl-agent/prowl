@@ -8,7 +8,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { getSavingsReport } from "../../../packages/core/src/analytics/cost-tracker.js";
+import {
+  getSavingsReport,
+  getRunningTotal,
+} from "../../../packages/core/src/analytics/cost-tracker.js";
 import {
   deleteModel,
   listInstalledModels,
@@ -22,8 +25,10 @@ import {
   getAuditLog,
   getPrivacyStats,
 } from "../../../packages/core/src/privacy/privacy-tracker.js";
+import { getRouterStatus } from "../../../packages/core/src/router/prowl-router-integration.js";
 import { detectHardware, formatProfile } from "../../../packages/core/src/setup/hardware-detect.js";
 import { recommendModel } from "../../../packages/core/src/setup/model-recommend.js";
+import { startOllamaIfNeeded } from "./ensure-ollama.js";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -432,9 +437,94 @@ export function createPrivacyExportCsvHandler(): RouteHandler {
   };
 }
 
+export function createProwlSavingsHandler(): RouteHandler {
+  return async (req, res) => {
+    const requestUrl = new URL(req.url ?? "/", "http://localhost");
+    const rawPeriod = requestUrl.searchParams.get("period") ?? "month";
+    const period = isSavingsPeriod(rawPeriod) ? rawPeriod : "month";
+    try {
+      const [report, runningTotal] = await Promise.all([
+        getSavingsReport(period),
+        getRunningTotal(),
+      ]);
+      sendJson(res, 200, {
+        report,
+        total: runningTotal.allTimeSavingsUSD,
+        formattedTotal: runningTotal.formattedSavings,
+        lastUpdated: new Date().toISOString(),
+      });
+    } catch {
+      sendJson(res, 500, { error: "Failed to load savings data" });
+    }
+  };
+}
+
+export function createProwlPrivacyHandler(): RouteHandler {
+  return async (_req, res) => {
+    try {
+      const routerStatus = getRouterStatus();
+      const savings = await getSavingsReport("all-time");
+
+      sendJson(res, 200, {
+        allLocal: routerStatus.mode === "disabled" || !routerStatus.cloudEnabled,
+        cloudCallsToday: 0, // Placeholder as we don't have cloud routing fully wired yet
+        privacyStreak: savings.daysTracked,
+        routerMode: routerStatus.mode,
+        dataFlows: [
+          {
+            from: "Your Device",
+            to: "Ollama (localhost)",
+            encrypted: false,
+            note: "Never leaves your machine",
+          },
+        ],
+      });
+    } catch {
+      sendJson(res, 500, { error: "Failed to load privacy data" });
+    }
+  };
+}
+
+export function createProwlStatsHandler(): RouteHandler {
+  return async (_req, res) => {
+    try {
+      const report = await getSavingsReport("all-time");
+      sendJson(res, 200, {
+        totalRequests: report.totalInferences,
+        localRequests: report.totalInferences, // All local for now
+        cloudRequests: 0,
+        localPercent: 100,
+        daysFullyLocal: report.daysTracked,
+        currentStreak: report.daysTracked,
+        tokensProcessedLocally: report.totalTokens,
+        tokensProcessedCloud: 0,
+        lastCloudRequest: null,
+      });
+    } catch {
+      sendJson(res, 500, { error: "Failed to load stats data" });
+    }
+  };
+}
+
 export function createHealthHandler(cfg: ProwlHttpConfig): RouteHandler {
   return async (_req, res) => {
     const ollamaRunning = await isOllamaRunning(cfg.ollamaUrl);
     sendJson(res, 200, { status: "ok", ollamaRunning });
+  };
+}
+
+export function createOllamaStartHandler(cfg: ProwlHttpConfig): RouteHandler {
+  return async (req, res) => {
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "Method Not Allowed" });
+      return;
+    }
+    try {
+      const result = await startOllamaIfNeeded(cfg.ollamaUrl);
+      sendJson(res, 200, { ok: true, started: result.started, error: result.error ?? null });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      sendJson(res, 500, { ok: false, error: message });
+    }
   };
 }

@@ -292,6 +292,8 @@ export async function authorizeGatewayConnect(params: {
   clientIp?: string;
   /** Optional limiter scope; defaults to shared-secret auth scope. */
   rateLimitScope?: string;
+  /** When true, allow control UI from loopback without token so the dashboard works out of the box. */
+  allowLoopbackControlUiWithoutToken?: boolean;
 }): Promise<GatewayAuthResult> {
   const { auth, connectAuth, req, trustedProxies } = params;
   const tailscaleWhois = params.tailscaleWhois ?? readTailscaleWhoisIdentity;
@@ -353,6 +355,12 @@ export async function authorizeGatewayConnect(params: {
       return { ok: false, reason: "token_missing_config" };
     }
     if (!connectAuth?.token) {
+      // Control UI from loopback (e.g. dashboard opened from same machine): allow without token
+      // so first-time users don't have to find/paste the auto-generated token.
+      if (params.allowLoopbackControlUiWithoutToken === true && localDirect) {
+        limiter?.reset(ip, rateLimitScope);
+        return { ok: true, method: "token" };
+      }
       limiter?.recordFailure(ip, rateLimitScope);
       return { ok: false, reason: "token_missing" };
     }

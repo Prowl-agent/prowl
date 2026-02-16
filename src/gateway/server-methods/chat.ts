@@ -526,9 +526,11 @@ export const chatHandlers: GatewayRequestHandlers = {
         channel: INTERNAL_MESSAGE_CHANNEL,
       });
       const finalReplyParts: string[] = [];
+      let dispatchError: Error | null = null;
       const dispatcher = createReplyDispatcher({
         ...prefixOptions,
         onError: (err) => {
+          dispatchError = err instanceof Error ? err : new Error(String(err));
           context.logGateway.warn(`webchat dispatch failed: ${formatForLog(err)}`);
         },
         deliver: async (payload, info) => {
@@ -576,6 +578,10 @@ export const chatHandlers: GatewayRequestHandlers = {
         },
       })
         .then(() => {
+          // If dispatch had an error, throw it so it's caught by the catch block
+          if (dispatchError) {
+            throw dispatchError;
+          }
           if (!agentRunStarted) {
             const combinedReply = finalReplyParts
               .map((part) => part.trim())

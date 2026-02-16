@@ -8,6 +8,7 @@
  *
  * Re-export syncProwlEnv() so run-main.ts can re-invoke after .env loading.
  */
+import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -56,8 +57,40 @@ export function syncProwlEnv(env: NodeJS.ProcessEnv = process.env): void {
 
   // Prowl defaults: local-first with Ollama.
   env.OPENCLAW_DEFAULT_PROVIDER ??= "ollama";
-  env.OPENCLAW_DEFAULT_MODEL ??= "qwen3:8b";
+
+  // Read saved model from ~/.prowl/config.json (written by auto-model detection).
+  // Falls back to qwen3:8b if no config exists yet.
+  if (!env.OPENCLAW_DEFAULT_MODEL) {
+    let savedModel: string | undefined;
+    try {
+      const configPath = path.join(os.homedir(), ".prowl", "config.json");
+      const raw = readFileSync(configPath, "utf8");
+      const parsed = JSON.parse(raw) as { model?: string };
+      if (typeof parsed.model === "string" && parsed.model.trim().length > 0) {
+        savedModel = parsed.model;
+      }
+    } catch {
+      // No config yet — first run or deleted config.
+    }
+    env.OPENCLAW_DEFAULT_MODEL = savedModel ?? "qwen3:1.7b";
+  }
+
+  // Enable model tier routing: use small model for chat, auto-escalate for complex tasks.
+  // PROWL_DEFAULT_CHAT_MODEL: fast model for simple chat (default: qwen3:1.7b)
+  // PROWL_HEAVY_MODEL: capable model for complex reasoning/code (default: qwen3:8b)
+  // PROWL_AUTO_ROUTE: enable automatic routing (default: true)
+  env.PROWL_DEFAULT_CHAT_MODEL ??= env.OPENCLAW_DEFAULT_MODEL ?? "qwen3:1.7b";
+  env.PROWL_HEAVY_MODEL ??= "qwen3:8b";
+  env.PROWL_AUTO_ROUTE ??= "true";
 }
 
 // Auto-run on first import so env vars are set before any other module loads.
 syncProwlEnv();
+
+// Initialize the task router after env vars are resolved.
+import { initRouter } from "../packages/core/src/router/prowl-router-integration.js";
+
+initRouter(process.env.PROWL_DEFAULT_CHAT_MODEL || "qwen3:1.7b", {
+  cloudFallbackMode:
+    (process.env.PROWL_CLOUD_FALLBACK as "disabled" | "manual" | "auto") || "disabled",
+});

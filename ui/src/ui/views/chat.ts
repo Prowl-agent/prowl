@@ -1,6 +1,7 @@
 import { html, nothing } from "lit";
 import { ref } from "lit/directives/ref.js";
 import { repeat } from "lit/directives/repeat.js";
+import type { ChatUsage } from "../controllers/chat.ts";
 import type { SessionsListResult } from "../types.ts";
 import type { ChatItem, MessageGroup } from "../types/chat-types.ts";
 import type { ChatAttachment, ChatQueueItem } from "../ui-types.ts";
@@ -34,6 +35,7 @@ export type ChatProps = {
   toolMessages: unknown[];
   stream: string | null;
   streamStartedAt: number | null;
+  lastUsage?: ChatUsage | null;
   assistantAvatarUrl?: string | null;
   draft: string;
   queue: ChatQueueItem[];
@@ -207,6 +209,18 @@ export function renderChat(props: ChatProps) {
 
   const splitRatio = props.splitRatio ?? 0.6;
   const sidebarOpen = Boolean(props.sidebarOpen && props.onCloseSidebar);
+  const chatItems = buildChatItems(props);
+  // Find the last assistant group to attach usage info to it
+  let lastAssistantGroupKey: string | null = null;
+  if (!props.stream) {
+    for (let i = chatItems.length - 1; i >= 0; i--) {
+      const it = chatItems[i];
+      if (it.kind === "group" && it.role === "assistant") {
+        lastAssistantGroupKey = it.key;
+        break;
+      }
+    }
+  }
   const thread = html`
     <div
       class="chat-thread"
@@ -222,7 +236,7 @@ export function renderChat(props: ChatProps) {
           : nothing
       }
       ${repeat(
-        buildChatItems(props),
+        chatItems,
         (item) => item.key,
         (item) => {
           if (item.kind === "divider") {
@@ -249,11 +263,13 @@ export function renderChat(props: ChatProps) {
           }
 
           if (item.kind === "group") {
+            const isLastAssistant = item.key === lastAssistantGroupKey;
             return renderMessageGroup(item, {
               onOpenSidebar: props.onOpenSidebar,
               showReasoning,
               assistantName: props.assistantName,
               assistantAvatar: assistantIdentity.avatar,
+              lastUsage: isLastAssistant ? props.lastUsage : null,
             });
           }
 

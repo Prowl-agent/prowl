@@ -144,8 +144,8 @@ $sr = Read-Host '  Start Prowl now? (Y/n)'
 if ($sr -notmatch '^[Nn]') {
   Write-Info 'Starting Prowl...'
   Push-Location $ProwlDir
-  if (Get-Command pnpm -ErrorAction SilentlyContinue) { Start-Process pnpm -ArgumentList 'start' -WindowStyle Hidden }
-  else { Start-Process npm -ArgumentList 'start' -WindowStyle Hidden }
+  if (Get-Command pnpm -ErrorAction SilentlyContinue) { Start-Process pnpm -ArgumentList 'start','gateway','run','--allow-unconfigured' -WindowStyle Hidden }
+  else { Start-Process npm -ArgumentList 'start','gateway','run','--allow-unconfigured' -WindowStyle Hidden }
   Pop-Location
   Start-Sleep -Seconds 3
   Start-Process 'http://localhost:18789'

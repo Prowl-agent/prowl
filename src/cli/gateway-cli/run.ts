@@ -4,9 +4,11 @@ import path from "node:path";
 import type { GatewayAuthMode } from "../../config/config.js";
 import type { GatewayWsLogStyle } from "../../gateway/ws-logging.js";
 import {
+  clearConfigCache,
   CONFIG_PATH,
   loadConfig,
   readConfigFileSnapshot,
+  resolveConfigPath,
   resolveStateDir,
   resolveGatewayPort,
 } from "../../config/config.js";
@@ -94,7 +96,7 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
     await ensureDevGatewayConfig({ reset: Boolean(opts.reset) });
   }
 
-  const cfg = loadConfig();
+  let cfg = loadConfig();
   const portOverride = parsePort(opts.port);
   if (opts.port !== undefined && portOverride === null) {
     defaultRuntime.error("Invalid port");
@@ -163,8 +165,29 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
   const snapshot = await readConfigFileSnapshot().catch(() => null);
   const configExists = snapshot?.exists ?? fs.existsSync(CONFIG_PATH);
   const configAuditPath = path.join(resolveStateDir(process.env), "logs", "config-audit.jsonl");
+
+  // Honor --allow-unconfigured so new users can start without running prowl setup first.
+  const allowUnconfigured =
+    Boolean(opts.allowUnconfigured) || process.argv.includes("--allow-unconfigured");
+
+  if (allowUnconfigured && !configExists) {
+    const configPath = resolveConfigPath(process.env);
+    const stateDir = path.dirname(configPath);
+    try {
+      fs.mkdirSync(stateDir, { recursive: true });
+    } catch {
+      // ignore; writeFile may still succeed
+    }
+    const minimal = { gateway: { mode: "local" as const } };
+    fs.writeFileSync(configPath, `${JSON.stringify(minimal, null, 2)}\n`, "utf8");
+    clearConfigCache();
+    cfg = loadConfig();
+    // Signal the server to open the dashboard once (config now exists so first-run would not trigger).
+    process.env.PROWL_OPEN_DASHBOARD_ON_START = "1";
+  }
+
   const mode = cfg.gateway?.mode;
-  if (!opts.allowUnconfigured && mode !== "local") {
+  if (!allowUnconfigured && mode !== "local") {
     if (!configExists) {
       defaultRuntime.error(
         `Missing config. Run \`${formatCliCommand("prowl setup")}\` or set gateway.mode=local (or pass --allow-unconfigured).`,

@@ -1,6 +1,7 @@
 import { html, nothing } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import type { AssistantIdentity } from "../assistant-identity.ts";
+import type { ChatUsage } from "../controllers/chat.ts";
 import type { MessageGroup } from "../types/chat-types.ts";
 import { toSanitizedMarkdownHtml } from "../markdown.ts";
 import { detectTextDirection } from "../text-direction.ts";
@@ -81,6 +82,9 @@ export function renderStreamingGroup(
     minute: "2-digit",
   });
   const name = assistant?.name ?? "Assistant";
+  const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
+  const elapsedLabel =
+    elapsedSec < 60 ? `${elapsedSec}s` : `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`;
 
   return html`
     <div class="chat-group assistant">
@@ -98,6 +102,7 @@ export function renderStreamingGroup(
         <div class="chat-group-footer">
           <span class="chat-sender-name">${name}</span>
           <span class="chat-group-timestamp">${timestamp}</span>
+          <span class="chat-processing-indicator" title="Time elapsed">⏳ ${elapsedLabel}</span>
         </div>
       </div>
     </div>
@@ -111,6 +116,7 @@ export function renderMessageGroup(
     showReasoning: boolean;
     assistantName?: string;
     assistantAvatar?: string | null;
+    lastUsage?: ChatUsage | null;
   },
 ) {
   const normalizedRole = normalizeRoleForGrouping(group.role);
@@ -127,6 +133,9 @@ export function renderMessageGroup(
     hour: "numeric",
     minute: "2-digit",
   });
+
+  const showUsage = normalizedRole === "assistant" && Boolean(opts.lastUsage);
+  const usage = opts.lastUsage;
 
   return html`
     <div class="chat-group ${roleClass}">
@@ -148,6 +157,11 @@ export function renderMessageGroup(
         <div class="chat-group-footer">
           <span class="chat-sender-name">${who}</span>
           <span class="chat-group-timestamp">${timestamp}</span>
+          ${
+            showUsage && usage
+              ? html`<span class="chat-token-usage" title="Token usage: ${usage.input} in / ${usage.output} out">${usage.totalTokens.toLocaleString()} tokens</span>`
+              : nothing
+          }
         </div>
       </div>
     </div>

@@ -128,7 +128,7 @@ ok "Ready!"
 [[ -f "$PROWL_CONFIG" ]] || cat > "$PROWL_CONFIG" <<JSON
 {"model":"${PROWL_MODEL}","ollamaUrl":"http://localhost:11434","installedAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","prowlVersion":"${PROWL_VERSION}"}
 JSON
-mk="# prowl-agent"; al="alias prowl='cd ${PROWL_DIR} && pnpm start'"
+mk="# prowl-agent"; al="alias prowl='cd ${PROWL_DIR} && pnpm start gateway run --allow-unconfigured'"
 for rc in "${HOME}/.zshrc" "${HOME}/.bashrc" "${HOME}/.bash_profile"; do
   [[ -f "$rc" ]] && ! grep -q "$mk" "$rc" && { echo ""; echo "$mk"; echo "$al"; } >> "$rc"
 done
@@ -150,7 +150,7 @@ read -r sr < /dev/tty 2>/dev/null || sr="y"
 if [[ "${sr:-y}" =~ ^[Yy]|^$ ]]; then
   echo ""; info "Starting Prowl..."
   cd "$PROWL_DIR"
-  if command -v pnpm &>/dev/null; then pnpm start & else npm start & fi
+  if command -v pnpm &>/dev/null; then pnpm start gateway run --allow-unconfigured & else npm start gateway run --allow-unconfigured & fi
   sleep 3; url="http://localhost:18789"
   if [[ "${OSTYPE:-}" == darwin* ]]; then open "$url" 2>/dev/null || true
   elif command -v xdg-open &>/dev/null; then xdg-open "$url" 2>/dev/null || true; fi

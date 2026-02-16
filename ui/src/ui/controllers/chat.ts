@@ -3,6 +3,12 @@ import type { ChatAttachment } from "../ui-types.ts";
 import { extractText } from "../chat/message-extract.ts";
 import { generateUUID } from "../uuid.ts";
 
+export type ChatUsage = {
+  input: number;
+  output: number;
+  totalTokens: number;
+};
+
 export type ChatState = {
   client: GatewayBrowserClient | null;
   connected: boolean;
@@ -17,6 +23,7 @@ export type ChatState = {
   chatStream: string | null;
   chatStreamStartedAt: number | null;
   lastError: string | null;
+  lastUsage: ChatUsage | null;
 };
 
 export type ChatEventPayload = {
@@ -25,6 +32,7 @@ export type ChatEventPayload = {
   state: "delta" | "final" | "aborted" | "error";
   message?: unknown;
   errorMessage?: string;
+  usage?: ChatUsage;
 };
 
 export async function loadChatHistory(state: ChatState) {
@@ -194,6 +202,28 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
       }
     }
   } else if (payload.state === "final") {
+    // Extract usage from the final message object if available
+    const msg = payload.message as Record<string, unknown> | undefined;
+    const msgUsage = msg?.usage as Record<string, unknown> | undefined;
+    if (msgUsage && typeof msgUsage.input === "number" && typeof msgUsage.output === "number") {
+      state.lastUsage = {
+        input: msgUsage.input,
+        output: msgUsage.output,
+        totalTokens:
+          typeof msgUsage.totalTokens === "number"
+            ? msgUsage.totalTokens
+            : msgUsage.input + msgUsage.output,
+      };
+    } else if (
+      payload.usage &&
+      typeof payload.usage.input === "number" &&
+      typeof payload.usage.output === "number"
+    ) {
+      state.lastUsage = payload.usage;
+    }
+    if (payload.message) {
+      state.chatMessages = [...state.chatMessages, payload.message];
+    }
     state.chatStream = null;
     state.chatRunId = null;
     state.chatStreamStartedAt = null;
