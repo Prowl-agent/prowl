@@ -165,7 +165,7 @@ describe("validateProviderConfig", () => {
 
       expect(result.valid).toBe(false);
       expect(result.errors).toContain(
-        "plugins.entries.voice-call.config.telnyx.publicKey is required (or set TELNYX_PUBLIC_KEY env)",
+        "plugins.entries.voice-call.config.telnyx.publicKey is required for inboundPolicy allowlist/pairing",
       );
     });
 

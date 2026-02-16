@@ -10,7 +10,7 @@
     "express": "^5.2.1"
   },
   "devDependencies": {
-    "openclaw": "workspace:*"
+    "prowl": "workspace:*"
   },
   "openclaw": {
     "extensions": [

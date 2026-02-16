@@ -5,10 +5,10 @@
   "description": "OpenClaw core memory search plugin",
   "type": "module",
   "devDependencies": {
-    "openclaw": "workspace:*"
+    "prowl": "workspace:*"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.1.26"
+    "prowl": ">=2026.1.26"
   },
   "openclaw": {
     "extensions": [

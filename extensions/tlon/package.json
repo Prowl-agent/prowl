@@ -8,7 +8,7 @@
     "@urbit/aura": "^3.0.0"
   },
   "devDependencies": {
-    "openclaw": "workspace:*"
+    "prowl": "workspace:*"
   },
   "openclaw": {
     "extensions": [

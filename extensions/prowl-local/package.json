@@ -8,6 +8,6 @@
     "ollama": "^0.6.3"
   },
   "devDependencies": {
-    "openclaw": "workspace:*"
+    "prowl": "workspace:*"
   }
 }

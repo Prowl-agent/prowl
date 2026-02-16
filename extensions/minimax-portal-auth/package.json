@@ -5,7 +5,7 @@
   "description": "OpenClaw MiniMax Portal OAuth provider plugin",
   "type": "module",
   "devDependencies": {
-    "openclaw": "workspace:*"
+    "prowl": "workspace:*"
   },
   "openclaw": {
     "extensions": [

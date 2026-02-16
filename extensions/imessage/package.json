@@ -5,7 +5,7 @@
   "description": "OpenClaw iMessage channel plugin",
   "type": "module",
   "devDependencies": {
-    "openclaw": "workspace:*"
+    "prowl": "workspace:*"
   },
   "openclaw": {
     "extensions": [
