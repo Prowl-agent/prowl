@@ -1,0 +1,30 @@
+{
+  "name": "create-prowl",
+  "version": "0.1.0",
+  "description": "Set up Prowl — your local AI agent — in under 3 minutes",
+  "keywords": [
+    "agent",
+    "ai",
+    "create",
+    "local",
+    "ollama",
+    "prowl"
+  ],
+  "license": "MIT",
+  "bin": {
+    "create-prowl": "./index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "src/"
+  ],
+  "type": "module",
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "cli-progress": "^3.12.0",
+    "ora": "^8.2.0"
+  },
+  "devDependencies": {
+    "@types/cli-progress": "^3.11.6"
+  }
+}
