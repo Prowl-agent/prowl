@@ -22,10 +22,33 @@ function normalizeApiBase(apiBase: string): string {
   return trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed;
 }
 
+type HealthState = "healthy" | "no-model" | "stopped";
+
+function deriveHealthState(ollamaRunning: boolean, activeModel: string): HealthState {
+  if (!ollamaRunning) {
+    return "stopped";
+  }
+  if (activeModel === "No active model") {
+    return "no-model";
+  }
+  return "healthy";
+}
+
+const HEALTH_LABELS: Record<HealthState, string> = {
+  healthy: "Ollama running, model loaded",
+  "no-model": "Ollama running, no model loaded",
+  stopped: "Ollama not running",
+};
+
+const HEALTH_POLL_MS = 30_000;
+
 export default function AppShell({ children, apiBase = "" }: AppShellProps) {
   const base = useMemo(() => normalizeApiBase(apiBase), [apiBase]);
   const [ollamaRunning, setOllamaRunning] = useState(false);
   const [activeModel, setActiveModel] = useState("No active model");
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  const healthState = deriveHealthState(ollamaRunning, activeModel);
 
   useEffect(() => {
     let disposed = false;
@@ -69,7 +92,7 @@ export default function AppShell({ children, apiBase = "" }: AppShellProps) {
     void refreshHeader();
     const intervalId = window.setInterval(() => {
       void refreshHeader();
-    }, 10_000);
+    }, HEALTH_POLL_MS);
 
     return () => {
       disposed = true;
@@ -113,9 +136,14 @@ export default function AppShell({ children, apiBase = "" }: AppShellProps) {
           color: #34d399;
           font-size: 12px;
           font-weight: 600;
+          position: relative;
+          cursor: pointer;
         }
         .prowl-status.stopped {
           color: #f87171;
+        }
+        .prowl-status.no-model {
+          color: #fbbf24;
         }
         .prowl-status-dot {
           width: 8px;
@@ -129,6 +157,46 @@ export default function AppShell({ children, apiBase = "" }: AppShellProps) {
           background: #ef4444;
           box-shadow: none;
           animation: none;
+        }
+        .prowl-status.no-model .prowl-status-dot {
+          background: #f59e0b;
+          box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.55);
+          animation: prowl-pulse-yellow 1.6s ease-out infinite;
+        }
+        .prowl-health-tooltip {
+          position: absolute;
+          top: calc(100% + 10px);
+          left: 50%;
+          transform: translateX(-50%);
+          background: #1e293b;
+          border: 1px solid #334155;
+          border-radius: 10px;
+          padding: 12px 16px;
+          min-width: 260px;
+          z-index: 20;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+          pointer-events: auto;
+        }
+        .prowl-health-tooltip-title {
+          font-size: 13px;
+          font-weight: 700;
+          margin-bottom: 6px;
+        }
+        .prowl-health-tooltip-body {
+          font-size: 12px;
+          color: #94a3b8;
+          line-height: 1.5;
+        }
+        .prowl-health-tooltip-code {
+          display: inline-block;
+          margin-top: 6px;
+          background: #0f172a;
+          border: 1px solid #334155;
+          border-radius: 6px;
+          padding: 4px 8px;
+          font-family: monospace;
+          font-size: 12px;
+          color: #e2e8f0;
         }
         .prowl-model {
           color: #94a3b8;
@@ -178,6 +246,17 @@ export default function AppShell({ children, apiBase = "" }: AppShellProps) {
             box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
           }
         }
+        @keyframes prowl-pulse-yellow {
+          0% {
+            box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.55);
+          }
+          70% {
+            box-shadow: 0 0 0 8px rgba(245, 158, 11, 0);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+          }
+        }
         @media (max-width: 880px) {
           .prowl-app-shell-header {
             grid-template-columns: 1fr;
@@ -204,11 +283,49 @@ export default function AppShell({ children, apiBase = "" }: AppShellProps) {
       <header className="prowl-app-shell-header">
         <div className="prowl-brand">🐾 Prowl</div>
         <div
-          className={`prowl-status ${ollamaRunning ? "running" : "stopped"}`}
+          className={`prowl-status ${healthState}`}
           data-testid="app-shell-ollama-status"
+          data-health={healthState}
+          onClick={() => setShowTooltip((prev) => !prev)}
+          onMouseLeave={() => setShowTooltip(false)}
         >
           <span className="prowl-status-dot" />
-          <span>{ollamaRunning ? "Ollama Running" : "Ollama Stopped"}</span>
+          <span>{HEALTH_LABELS[healthState]}</span>
+
+          {showTooltip ? (
+            <div className="prowl-health-tooltip" data-testid="health-tooltip">
+              {healthState === "stopped" ? (
+                <>
+                  <div className="prowl-health-tooltip-title" style={{ color: "#f87171" }}>
+                    Ollama is not running
+                  </div>
+                  <div className="prowl-health-tooltip-body">
+                    Prowl needs Ollama to run AI models locally. Start it with:
+                    <code className="prowl-health-tooltip-code">ollama serve</code>
+                  </div>
+                </>
+              ) : healthState === "no-model" ? (
+                <>
+                  <div className="prowl-health-tooltip-title" style={{ color: "#fbbf24" }}>
+                    No model loaded
+                  </div>
+                  <div className="prowl-health-tooltip-body">
+                    Ollama is running but no model is active. Pull a model:
+                    <code className="prowl-health-tooltip-code">ollama pull qwen3:8b</code>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="prowl-health-tooltip-title" style={{ color: "#34d399" }}>
+                    Everything is running
+                  </div>
+                  <div className="prowl-health-tooltip-body">
+                    Ollama is running and {activeModel} is loaded. You're ready to go.
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
         </div>
         <div className="prowl-model" data-testid="app-shell-active-model">
           {activeModel}
