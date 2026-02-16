@@ -495,11 +495,7 @@ export default function SetupWizard({
                 className="setup-welcome-prompt"
                 type="button"
                 onClick={() => {
-                  try {
-                    navigator.clipboard.writeText(example.prompt);
-                  } catch {
-                    /* ignore */
-                  }
+                  void navigator.clipboard.writeText(example.prompt).catch(() => {});
                   setWelcomePanel(2);
                 }}
               >
