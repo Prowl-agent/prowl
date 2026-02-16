@@ -79,6 +79,58 @@ async function parseErrorBody(response: Response): Promise<string> {
   return `HTTP ${response.status}`;
 }
 
+const EXAMPLE_PROMPTS = [
+  {
+    icon: "📝",
+    label: "Write a Python script",
+    description: "Generate a CLI tool that converts CSV to JSON",
+    prompt:
+      "Write a Python CLI script that reads a CSV file and converts it to JSON, with options for pretty-printing and filtering columns.",
+  },
+  {
+    icon: "✉️",
+    label: "Draft an email",
+    description: "Help compose a professional message",
+    prompt:
+      "Help me draft a professional email to my team announcing a new project timeline. Keep it concise and positive.",
+  },
+  {
+    icon: "🔍",
+    label: "Explain code",
+    description: "Break down how a piece of code works",
+    prompt:
+      "Explain how JavaScript Promises work, with a simple example showing .then(), .catch(), and async/await.",
+  },
+];
+
+/** Animates a savings counter from 0.00 upward for visual effect. */
+function SavingsAnimator({ onTick }: { onTick: (value: number) => void }) {
+  React.useEffect(() => {
+    let frame: number;
+    let start: number | null = null;
+    const duration = 2000;
+    const target = 0.0;
+
+    const animate = (ts: number) => {
+      if (!start) {
+        start = ts;
+      }
+      const elapsed = ts - start;
+      const progress = Math.min(elapsed / duration, 1);
+      // Animate to $0.00 — the point is the counter itself, not the number
+      onTick(target * progress);
+      if (progress < 1) {
+        frame = requestAnimationFrame(animate);
+      }
+    };
+
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [onTick]);
+
+  return null;
+}
+
 export default function SetupWizard({
   isFirstRun,
   hardwareProfile,
@@ -87,6 +139,8 @@ export default function SetupWizard({
   onComplete,
 }: SetupWizardProps) {
   const [step, setStep] = useState(1);
+  const [welcomePanel, setWelcomePanel] = useState(0);
+  const [savingsCount, setSavingsCount] = useState(0);
   const [installing, setInstalling] = useState(false);
   const [installProgress, setInstallProgress] = useState<{
     phase: PullPhase;
@@ -388,24 +442,104 @@ export default function SetupWizard({
       );
     }
 
+    // 3-panel welcome flow
+    if (welcomePanel === 0) {
+      return (
+        <div>
+          <div className="setup-ready-emoji">🐾</div>
+          <h2 className="setup-ready-title">Your AI agent is running locally</h2>
+          <div className="setup-ready-subtitle">
+            Everything stays on your machine. No cloud. No API keys.
+          </div>
+
+          <div className="setup-ready-stats">
+            <div className="setup-ready-stat">
+              <div className="setup-ready-label">Hardware</div>
+              <div className="setup-ready-value setup-ready-value-sm">
+                {hardwareProfile.split("·")[0]?.trim() || "Your Machine"}
+              </div>
+            </div>
+            <div className="setup-ready-stat">
+              <div className="setup-ready-label">Model</div>
+              <div className="setup-ready-value setup-ready-value-sm">
+                {recommendation.displayName}
+              </div>
+            </div>
+            <div className="setup-ready-stat">
+              <div className="setup-ready-label">Privacy</div>
+              <div className="setup-ready-value">100%</div>
+            </div>
+          </div>
+
+          <button
+            className="setup-wizard-button setup-wizard-button-wide"
+            type="button"
+            onClick={() => setWelcomePanel(1)}
+          >
+            Next →
+          </button>
+        </div>
+      );
+    }
+
+    if (welcomePanel === 1) {
+      return (
+        <div>
+          <h2 className="setup-ready-title">Try it out</h2>
+          <div className="setup-ready-subtitle">Click any example to get started</div>
+
+          <div className="setup-welcome-prompts" data-testid="welcome-prompts">
+            {EXAMPLE_PROMPTS.map((example) => (
+              <button
+                key={example.label}
+                className="setup-welcome-prompt"
+                type="button"
+                onClick={() => {
+                  try {
+                    navigator.clipboard.writeText(example.prompt);
+                  } catch {
+                    /* ignore */
+                  }
+                  setWelcomePanel(2);
+                }}
+              >
+                <span className="setup-welcome-prompt-icon">{example.icon}</span>
+                <span className="setup-welcome-prompt-text">
+                  <span className="setup-welcome-prompt-label">{example.label}</span>
+                  <span className="setup-welcome-prompt-desc">{example.description}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <button className="setup-skip-link" type="button" onClick={() => setWelcomePanel(2)}>
+            Skip →
+          </button>
+        </div>
+      );
+    }
+
     return (
       <div>
-        <div className="setup-ready-emoji">🐾</div>
-        <h2 className="setup-ready-title">You're ready!</h2>
-        <div className="setup-ready-subtitle">Prowl is running on your hardware</div>
+        <h2 className="setup-ready-title">You're saving money</h2>
+        <div className="setup-ready-subtitle">
+          Every message you send locally saves ~$0.02 vs GPT-4o
+        </div>
 
-        <div className="setup-ready-stats">
-          <div className="setup-ready-stat">
-            <div className="setup-ready-label">Local</div>
-            <div className="setup-ready-value">100%</div>
+        <div className="setup-savings-hero" data-testid="welcome-savings">
+          <div className="setup-savings-amount">${savingsCount.toFixed(2)}</div>
+          <div className="setup-savings-label">saved so far</div>
+          <SavingsAnimator onTick={setSavingsCount} />
+        </div>
+
+        <div className="setup-savings-breakdown">
+          <div className="setup-savings-row">
+            <span>Cloud API (GPT-4o)</span>
+            <span className="setup-savings-cost">~$20/mo</span>
           </div>
-          <div className="setup-ready-stat">
-            <div className="setup-ready-label">Cloud Cost</div>
-            <div className="setup-ready-value">$0.00</div>
-          </div>
-          <div className="setup-ready-stat">
-            <div className="setup-ready-label">Privacy</div>
-            <div className="setup-ready-value">Full</div>
+          <div className="setup-savings-row">
+            <span>Prowl (local)</span>
+            <span className="setup-savings-free">$0 forever</span>
           </div>
         </div>
 
@@ -692,6 +826,93 @@ export default function SetupWizard({
         }
         .setup-wizard-button-wide {
           width: 100%;
+        }
+        .setup-ready-value-sm {
+          font-size: 14px;
+        }
+        .setup-welcome-prompts {
+          margin-top: 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .setup-welcome-prompt {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          border: 1px solid #334155;
+          border-radius: 12px;
+          background: #1e293b;
+          padding: 16px;
+          cursor: pointer;
+          text-align: left;
+          color: #f1f5f9;
+          width: 100%;
+        }
+        .setup-welcome-prompt:hover {
+          border-color: #10b981;
+          background: #1a2332;
+        }
+        .setup-welcome-prompt-icon {
+          font-size: 24px;
+          line-height: 1;
+          flex-shrink: 0;
+        }
+        .setup-welcome-prompt-text {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .setup-welcome-prompt-label {
+          font-size: 15px;
+          font-weight: 600;
+          color: #ffffff;
+        }
+        .setup-welcome-prompt-desc {
+          font-size: 13px;
+          color: #94a3b8;
+        }
+        .setup-savings-hero {
+          margin-top: 24px;
+          text-align: center;
+          padding: 28px 20px;
+          background: #1e293b;
+          border: 1px solid #334155;
+          border-radius: 16px;
+        }
+        .setup-savings-amount {
+          font-size: 48px;
+          font-weight: 800;
+          color: #10b981;
+          line-height: 1;
+          font-variant-numeric: tabular-nums;
+        }
+        .setup-savings-label {
+          margin-top: 8px;
+          font-size: 14px;
+          color: #94a3b8;
+        }
+        .setup-savings-breakdown {
+          margin-top: 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .setup-savings-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 14px;
+          color: #cbd5e1;
+          padding: 8px 0;
+          border-bottom: 1px solid #1e293b;
+        }
+        .setup-savings-cost {
+          color: #f87171;
+          font-weight: 600;
+        }
+        .setup-savings-free {
+          color: #34d399;
+          font-weight: 600;
         }
         @media (max-width: 760px) {
           .setup-wizard-card {

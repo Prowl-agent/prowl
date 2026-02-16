@@ -191,7 +191,7 @@ describe("SetupWizard", () => {
     expect(screen.getByText("Connect a Messaging App")).toBeTruthy();
   });
 
-  it("Skip for now advances step 3 to step 4", async () => {
+  it("Skip for now advances to welcome panel 1 (local agent info)", async () => {
     fetchMock
       .mockResolvedValueOnce(makeJsonResponse({ models: [{ name: recommendation.model }] }))
       .mockResolvedValueOnce(
@@ -214,10 +214,11 @@ describe("SetupWizard", () => {
     expect(screen.getByText("Connect a Messaging App")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Skip for now →" }));
-    expect(screen.getByText("You're ready!")).toBeTruthy();
+    expect(screen.getByText("Your AI agent is running locally")).toBeTruthy();
+    expect(screen.getByText("Apple M4 Pro")).toBeTruthy();
   });
 
-  it("Open Dashboard dismisses wizard via onComplete", async () => {
+  it("welcome panels advance: local → try it → savings → dismiss", async () => {
     function Harness() {
       const [open, setOpen] = useState(true);
       return (
@@ -238,13 +239,27 @@ describe("SetupWizard", () => {
 
     render(<Harness />);
 
+    // Advance through setup steps
     fireEvent.click(screen.getByRole("button", { name: "Continue →" }));
     fireEvent.click(screen.getByRole("button", { name: "Install & Continue →" }));
     await flushEffects();
-
     fireEvent.click(screen.getByRole("button", { name: "Skip for now →" }));
+
+    // Welcome panel 1: local agent
+    expect(screen.getByText("Your AI agent is running locally")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Next →" }));
+
+    // Welcome panel 2: try it out
+    expect(screen.getByText("Try it out")).toBeTruthy();
+    expect(screen.getByTestId("welcome-prompts")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Skip →" }));
+
+    // Welcome panel 3: savings
+    expect(screen.getByText("You're saving money")).toBeTruthy();
+    expect(screen.getByTestId("welcome-savings")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open Dashboard →" }));
 
+    // Wizard dismissed
     expect(screen.queryByTestId("setup-wizard")).toBeNull();
   });
 });
