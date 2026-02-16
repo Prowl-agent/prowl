@@ -1,0 +1,21 @@
+{
+  "id": "prowl-local",
+  "name": "Prowl Local-First Features",
+  "description": "Model management, privacy tracking, cost savings, and setup endpoints for Prowl",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "ollamaUrl": {
+        "type": "string",
+        "default": "http://localhost:11434"
+      }
+    }
+  },
+  "uiHints": {
+    "ollamaUrl": {
+      "label": "Ollama URL",
+      "advanced": true,
+      "placeholder": "http://localhost:11434"
+    }
+  }
+}

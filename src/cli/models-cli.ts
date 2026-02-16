@@ -15,7 +15,6 @@ import {
   modelsFallbacksClearCommand,
   modelsFallbacksListCommand,
   modelsFallbacksRemoveCommand,
-  modelsHfInstallCommand,
   modelsImageFallbacksAddCommand,
   modelsImageFallbacksClearCommand,
   modelsImageFallbacksListCommand,
@@ -41,11 +40,14 @@ export function registerModelsCli(program: Command) {
     .description("Model discovery, scanning, and configuration")
     .option("--status-json", "Output JSON (alias for `models status --json`)", false)
     .option("--status-plain", "Plain output (alias for `models status --plain`)", false)
-    .option("--agent <id>", "Agent id to inspect (overrides agent directory env vars)")
+    .option(
+      "--agent <id>",
+      "Agent id to inspect (overrides OPENCLAW_AGENT_DIR/PI_CODING_AGENT_DIR)",
+    )
     .addHelpText(
       "after",
       () =>
-        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/models", "docs.prowl.ai/cli/models")}\n`,
+        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/models", "docs.openclaw.ai/cli/models")}\n`,
     );
 
   models
@@ -86,7 +88,10 @@ export function registerModelsCli(program: Command) {
     .option("--probe-timeout <ms>", "Per-probe timeout in ms")
     .option("--probe-concurrency <n>", "Concurrent probes")
     .option("--probe-max-tokens <n>", "Probe max tokens (best-effort)")
-    .option("--agent <id>", "Agent id to inspect (overrides agent directory env vars)")
+    .option(
+      "--agent <id>",
+      "Agent id to inspect (overrides OPENCLAW_AGENT_DIR/PI_CODING_AGENT_DIR)",
+    )
     .action(async (opts, command) => {
       const agent =
         resolveOptionFromCommand<string>(command, "agent") ?? (opts.agent as string | undefined);
@@ -246,28 +251,6 @@ export function registerModelsCli(program: Command) {
     .action(async () => {
       await runModelsCommand(async () => {
         await modelsImageFallbacksClearCommand(defaultRuntime);
-      });
-    });
-
-  models
-    .command("hf-install")
-    .description("Install a HuggingFace GGUF repo into Ollama")
-    .argument("<repoId>", "HuggingFace repo id, e.g. bartowski/Qwen3-8B-GGUF")
-    .option(
-      "--ram <gb>",
-      "Available RAM in GB used for quantization selection (default: current free RAM)",
-    )
-    .option("--json", "Output progress/result as JSON lines", false)
-    .action(async (repoId: string, opts) => {
-      await runModelsCommand(async () => {
-        await modelsHfInstallCommand(
-          repoId,
-          {
-            ram: opts.ram as string | undefined,
-            json: Boolean(opts.json),
-          },
-          defaultRuntime,
-        );
       });
     });
 
