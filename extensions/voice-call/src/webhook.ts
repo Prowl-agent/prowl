@@ -61,6 +61,10 @@ export class VoiceCallWebhookServer {
    */
   private initializeMediaStreaming(): void {
     const apiKey = this.config.streaming?.openaiApiKey || process.env.OPENAI_API_KEY;
+    const baseUrl =
+      this.config.streaming?.openaiBaseUrl ||
+      this.config.tts?.openai?.baseUrl ||
+      this.coreConfig?.models?.providers?.openai?.baseUrl;
 
     if (!apiKey) {
       console.warn("[voice-call] Streaming enabled but no OpenAI API key found");
@@ -69,6 +73,7 @@ export class VoiceCallWebhookServer {
 
     const sttProvider = new OpenAIRealtimeSTTProvider({
       apiKey,
+      baseUrl,
       model: this.config.streaming?.sttModel,
       silenceDurationMs: this.config.streaming?.silenceDurationMs,
       vadThreshold: this.config.streaming?.vadThreshold,

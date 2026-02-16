@@ -91,6 +91,10 @@
       "sensitive": true,
       "advanced": true
     },
+    "streaming.openaiBaseUrl": {
+      "label": "OpenAI Realtime Base URL",
+      "advanced": true
+    },
     "streaming.sttModel": {
       "label": "Realtime STT Model",
       "advanced": true
@@ -115,6 +119,10 @@
     "tts.openai.apiKey": {
       "label": "OpenAI API Key",
       "sensitive": true,
+      "advanced": true
+    },
+    "tts.openai.baseUrl": {
+      "label": "OpenAI Base URL",
       "advanced": true
     },
     "tts.elevenlabs.modelId": {
@@ -327,6 +335,9 @@
           "openaiApiKey": {
             "type": "string"
           },
+          "openaiBaseUrl": {
+            "type": "string"
+          },
           "sttModel": {
             "type": "string"
           },
@@ -479,6 +490,9 @@
             "additionalProperties": false,
             "properties": {
               "apiKey": {
+                "type": "string"
+              },
+              "baseUrl": {
                 "type": "string"
               },
               "model": {

@@ -73,6 +73,10 @@ const voiceCallConfigSchema = {
       sensitive: true,
       advanced: true,
     },
+    "streaming.openaiBaseUrl": {
+      label: "OpenAI Realtime Base URL",
+      advanced: true,
+    },
     "streaming.sttModel": { label: "Realtime STT Model", advanced: true },
     "streaming.streamPath": { label: "Media Stream Path", advanced: true },
     "tts.provider": {
@@ -87,6 +91,7 @@ const voiceCallConfigSchema = {
       sensitive: true,
       advanced: true,
     },
+    "tts.openai.baseUrl": { label: "OpenAI Base URL", advanced: true },
     "tts.elevenlabs.modelId": { label: "ElevenLabs Model ID", advanced: true },
     "tts.elevenlabs.voiceId": { label: "ElevenLabs Voice ID", advanced: true },
     "tts.elevenlabs.apiKey": {
