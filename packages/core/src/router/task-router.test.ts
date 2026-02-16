@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EstimatedCost, TaskComplexity } from "./task-router.js";
+import { clearCloudPricingOverride } from "../analytics/cost-tracker.js";
 import {
   compareComplexityLevels,
   createDefaultConfig,
@@ -8,6 +9,22 @@ import {
   routeTask,
   shouldWarnAboutCost,
 } from "./task-router.js";
+
+const originalCloudPricingEnv = process.env.OPENCLAW_CLOUD_PRICING_JSON;
+
+beforeEach(() => {
+  clearCloudPricingOverride();
+  delete process.env.OPENCLAW_CLOUD_PRICING_JSON;
+});
+
+afterEach(() => {
+  clearCloudPricingOverride();
+  if (originalCloudPricingEnv === undefined) {
+    delete process.env.OPENCLAW_CLOUD_PRICING_JSON;
+  } else {
+    process.env.OPENCLAW_CLOUD_PRICING_JSON = originalCloudPricingEnv;
+  }
+});
 
 describe("estimateComplexity", () => {
   it("returns simple for a short chat prompt", () => {
@@ -190,6 +207,35 @@ describe("routeTask", () => {
 
     expect(decision.route).toBe("cloud");
     expect(decision.estimatedCost).toBeDefined();
+  });
+
+  it("uses OPENCLAW_CLOUD_PRICING_JSON for cloud estimate calculations", async () => {
+    process.env.OPENCLAW_CLOUD_PRICING_JSON = JSON.stringify([
+      {
+        provider: "openai",
+        model: "gpt-4o",
+        inputPricePer1kTokens: 1,
+        outputPricePer1kTokens: 1,
+      },
+    ]);
+
+    const decision = await routeTask(
+      {
+        prompt: "abcd",
+        taskType: "chat",
+      },
+      {
+        localModel: "qwen3:8b",
+        cloudFallbackMode: "auto",
+        localContextWindowTokens: 0,
+        cloudProvider: "openai",
+        cloudModel: "gpt-4o",
+        complexityThreshold: "very-complex",
+      },
+    );
+
+    expect(decision.route).toBe("cloud");
+    expect(decision.estimatedCost?.estimatedTotalUSD).toBeCloseTo(0.257);
   });
 
   it("adds context-overflow warning in both local and cloud routing paths", async () => {

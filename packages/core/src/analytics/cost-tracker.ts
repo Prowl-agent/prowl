@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -106,7 +107,7 @@ export const CLOUD_PRICING: CloudPricing[] = [
   },
 ];
 
-const SUPPORTED_CLOUD_PROVIDERS: CloudProvider[] = new Set([
+const SUPPORTED_CLOUD_PROVIDERS: ReadonlySet<CloudProvider> = new Set([
   "openai",
   "anthropic",
   "google",
@@ -120,6 +121,13 @@ const DEFAULT_PRIMARY_COMPARISON = CLOUD_PRICING.find(
 let runtimeCloudPricingOverride: CloudPricing[] | undefined;
 let parsedEnvCloudPricing: { raw: string | undefined; pricing: CloudPricing[] | undefined } = {
   raw: undefined,
+  pricing: undefined,
+};
+let parsedFileCloudPricing: {
+  mtimeMs: number | null | undefined;
+  pricing: CloudPricing[] | undefined;
+} = {
+  mtimeMs: undefined,
   pricing: undefined,
 };
 
@@ -194,6 +202,45 @@ function getEnvCloudPricingOverride(): CloudPricing[] | undefined {
   return pricing;
 }
 
+function getFileCloudPricingOverride(): CloudPricing[] | undefined {
+  const overridePath = getCloudPricingOverridePath();
+  let mtimeMs: number | null = null;
+
+  try {
+    mtimeMs = fsSync.statSync(overridePath).mtimeMs;
+  } catch {
+    mtimeMs = null;
+  }
+
+  if (parsedFileCloudPricing.mtimeMs === mtimeMs) {
+    return parsedFileCloudPricing.pricing;
+  }
+
+  if (mtimeMs === null) {
+    parsedFileCloudPricing = {
+      mtimeMs: null,
+      pricing: undefined,
+    };
+    return undefined;
+  }
+
+  let pricing: CloudPricing[] | undefined;
+  try {
+    const raw = fsSync.readFileSync(overridePath, "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    const normalized = normalizeCloudPricing(parsed);
+    pricing = normalized.length > 0 ? normalized : undefined;
+  } catch {
+    pricing = undefined;
+  }
+
+  parsedFileCloudPricing = {
+    mtimeMs,
+    pricing,
+  };
+  return pricing;
+}
+
 function getPrimaryComparison(pricing: CloudPricing[]): CloudPricing {
   return (
     pricing.find((entry) => entry.provider === "openai" && entry.model === "gpt-4o") ??
@@ -215,8 +262,47 @@ export function clearCloudPricingOverride(): void {
   runtimeCloudPricingOverride = undefined;
 }
 
+export function getCloudPricingOverridePath(): string {
+  return path.join(getAnalyticsDir(), "cloud-pricing.json");
+}
+
+function invalidateFileCloudPricingCache(): void {
+  parsedFileCloudPricing = {
+    mtimeMs: undefined,
+    pricing: undefined,
+  };
+}
+
+export async function writeCloudPricingOverrideFile(
+  pricing: unknown,
+): Promise<{ path: string; entryCount: number }> {
+  const normalized = normalizeCloudPricing(pricing);
+  if (normalized.length === 0) {
+    throw new Error(
+      "Cloud pricing must be a JSON array of {provider,model,inputPricePer1kTokens,outputPricePer1kTokens}",
+    );
+  }
+
+  const overridePath = getCloudPricingOverridePath();
+  await fs.mkdir(getAnalyticsDir(), { recursive: true });
+  await fs.writeFile(overridePath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+  invalidateFileCloudPricingCache();
+  return { path: overridePath, entryCount: normalized.length };
+}
+
+export async function clearCloudPricingOverrideFile(): Promise<string> {
+  const overridePath = getCloudPricingOverridePath();
+  await fs.rm(overridePath, { force: true });
+  invalidateFileCloudPricingCache();
+  return overridePath;
+}
+
 export function getCloudPricing(): CloudPricing[] {
-  const resolved = runtimeCloudPricingOverride ?? getEnvCloudPricingOverride() ?? CLOUD_PRICING;
+  const resolved =
+    runtimeCloudPricingOverride ??
+    getEnvCloudPricingOverride() ??
+    getFileCloudPricingOverride() ??
+    CLOUD_PRICING;
   return resolved.map((pricing) => ({ ...pricing }));
 }
 

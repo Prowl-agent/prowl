@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { fileState, randomUUIDMock } = vi.hoisted(() => {
   const files = new Map<string, string>();
+  const fileMtimes = new Map<string, number>();
+  let nextMtime = 1;
 
   const createEnoentError = (filePath: string): Error => {
     const error = new Error(`ENOENT: no such file or directory, open '${filePath}'`) as Error & {
@@ -10,6 +12,11 @@ const { fileState, randomUUIDMock } = vi.hoisted(() => {
     };
     error.code = "ENOENT";
     return error;
+  };
+
+  const touch = (filePath: string): void => {
+    fileMtimes.set(filePath, nextMtime);
+    nextMtime += 1;
   };
 
   const readFile = vi.fn(async (filePath: string) => {
@@ -22,17 +29,37 @@ const { fileState, randomUUIDMock } = vi.hoisted(() => {
 
   const writeFile = vi.fn(async (filePath: string, contents: string) => {
     files.set(filePath, contents);
+    touch(filePath);
   });
 
   const appendFile = vi.fn(async (filePath: string, contents: string) => {
     const existing = files.get(filePath) ?? "";
     files.set(filePath, `${existing}${contents}`);
+    touch(filePath);
   });
 
   const mkdir = vi.fn(async () => undefined);
 
   const rm = vi.fn(async (filePath: string) => {
     files.delete(filePath);
+    fileMtimes.delete(filePath);
+  });
+
+  const readFileSync = vi.fn((filePath: string): string => {
+    const value = files.get(filePath);
+    if (value === undefined) {
+      throw createEnoentError(filePath);
+    }
+    return value;
+  });
+
+  const statSync = vi.fn((filePath: string): { mtimeMs: number } => {
+    if (!files.has(filePath)) {
+      throw createEnoentError(filePath);
+    }
+    return {
+      mtimeMs: fileMtimes.get(filePath) ?? 0,
+    };
   });
 
   const randomUUID = vi.fn(() => "test-uuid-123");
@@ -40,11 +67,15 @@ const { fileState, randomUUIDMock } = vi.hoisted(() => {
   return {
     fileState: {
       files,
+      fileMtimes,
       readFile,
       writeFile,
       appendFile,
       mkdir,
       rm,
+      touch,
+      readFileSync,
+      statSync,
     },
     randomUUIDMock: randomUUID,
   };
@@ -70,37 +101,52 @@ vi.mock("node:fs/promises", () => ({
   },
 }));
 
+vi.mock("node:fs", () => ({
+  default: {
+    readFileSync: fileState.readFileSync,
+    statSync: fileState.statSync,
+  },
+}));
+
 import {
   calculateCloudCost,
   clearCloudPricingOverride,
+  clearCloudPricingOverrideFile,
   clearAnalytics,
   CLOUD_PRICING,
   formatSavings,
   getCloudPricing,
+  getCloudPricingOverridePath,
   getRunningTotal,
   getSavingsReport,
   recordInference,
   setCloudPricingOverride,
+  writeCloudPricingOverrideFile,
 } from "./cost-tracker.js";
 
 const analyticsDir = path.join("/home/tester", ".prowl", "analytics");
 const inferencesPath = path.join(analyticsDir, "inferences.jsonl");
 const totalsPath = path.join(analyticsDir, "totals.json");
+const pricingOverridePath = path.join(analyticsDir, "cloud-pricing.json");
 const originalCloudPricingEnv = process.env.OPENCLAW_CLOUD_PRICING_JSON;
 
 function seedInferences(records: Array<Record<string, unknown>>): void {
   const lines = records.map((record) => JSON.stringify(record)).join("\n");
   fileState.files.set(inferencesPath, lines ? `${lines}\n` : "");
+  fileState.touch(inferencesPath);
 }
 
 describe("cost-tracker", () => {
   beforeEach(() => {
     fileState.files.clear();
+    fileState.fileMtimes.clear();
     fileState.readFile.mockClear();
     fileState.writeFile.mockClear();
     fileState.appendFile.mockClear();
     fileState.mkdir.mockClear();
     fileState.rm.mockClear();
+    fileState.readFileSync.mockClear();
+    fileState.statSync.mockClear();
     randomUUIDMock.mockReset();
     randomUUIDMock.mockReturnValue("test-uuid-123");
     vi.useFakeTimers();
@@ -317,6 +363,30 @@ describe("cost-tracker", () => {
     expect(report.bestSavingsProvider).toBe("openai gpt-4o");
   });
 
+  it("getCloudPricing uses override file when env is not set", () => {
+    fileState.files.set(
+      pricingOverridePath,
+      JSON.stringify([
+        {
+          provider: "openai",
+          model: "gpt-4o",
+          inputPricePer1kTokens: 7,
+          outputPricePer1kTokens: 8,
+        },
+      ]),
+    );
+    fileState.touch(pricingOverridePath);
+
+    expect(getCloudPricing()).toEqual([
+      {
+        provider: "openai",
+        model: "gpt-4o",
+        inputPricePer1kTokens: 7,
+        outputPricePer1kTokens: 8,
+      },
+    ]);
+  });
+
   it("getRunningTotal reads totals.json and formats savings", async () => {
     fileState.files.set(
       totalsPath,
@@ -379,6 +449,49 @@ describe("cost-tracker", () => {
         outputPricePer1kTokens: 0.3,
       },
     ]);
+  });
+
+  it("writeCloudPricingOverrideFile writes normalized entries and reports path", async () => {
+    const result = await writeCloudPricingOverrideFile([
+      {
+        provider: "openai",
+        model: "gpt-4o",
+        inputPricePer1kTokens: 1,
+        outputPricePer1kTokens: 2,
+      },
+      {
+        provider: "invalid",
+        model: "",
+        inputPricePer1kTokens: -1,
+        outputPricePer1kTokens: 0,
+      },
+    ]);
+
+    expect(result).toEqual({
+      path: pricingOverridePath,
+      entryCount: 1,
+    });
+    expect(getCloudPricingOverridePath()).toBe(pricingOverridePath);
+    expect(fileState.files.get(pricingOverridePath)).toContain('"model": "gpt-4o"');
+  });
+
+  it("clearCloudPricingOverrideFile deletes override file", async () => {
+    fileState.files.set(
+      pricingOverridePath,
+      JSON.stringify([
+        {
+          provider: "openai",
+          model: "gpt-4o",
+          inputPricePer1kTokens: 1,
+          outputPricePer1kTokens: 2,
+        },
+      ]),
+    );
+    fileState.touch(pricingOverridePath);
+
+    await clearCloudPricingOverrideFile();
+
+    expect(fileState.files.has(pricingOverridePath)).toBe(false);
   });
 
   it("clearAnalytics removes inferences and totals files", async () => {
