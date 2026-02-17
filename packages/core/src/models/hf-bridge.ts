@@ -953,6 +953,7 @@ export async function benchmarkModel(ollamaTag: string): Promise<BenchmarkResult
           model: ollamaTag,
           prompt,
           stream: true,
+          keep_alive: "5m",
         }),
         signal: controller.signal,
       });

@@ -603,6 +603,7 @@ export async function runInstaller(options?: InstallerOptions): Promise<Installe
               model: selectedModelTag,
               prompt: "Reply with exactly: PROWL_READY",
               stream: false,
+              keep_alive: "5m",
             }),
           },
           VERIFICATION_TIMEOUT_MS,

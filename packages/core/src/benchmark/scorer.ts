@@ -657,6 +657,7 @@ async function callLlmJudge(params: LlmJudgeParams): Promise<number | null> {
         model: params.model,
         prompt: judgePrompt,
         stream: false,
+        keep_alive: "5m",
         options: {
           temperature: 0.1,
           top_p: 0.9,

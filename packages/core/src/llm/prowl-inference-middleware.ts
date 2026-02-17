@@ -24,6 +24,7 @@ import {
   type OptimizedPromptResult,
 } from "../optimizer/model-prompt-optimizer.js";
 import { ModelSelector, type TaskWeight } from "./model-selector.js";
+import { PromptCache } from "./prompt-cache.js";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -137,6 +138,8 @@ export interface OptimizeResult {
   taskWeight: TaskWeight;
   taskType: OptimizerTaskType;
   optimizerResult?: OptimizedPromptResult;
+  /** Whether the system prompt + tool schemas were served from cache. */
+  promptCacheHit?: boolean;
 }
 
 export class ProwlInferenceMiddleware {
@@ -144,6 +147,7 @@ export class ProwlInferenceMiddleware {
   private modelSelector: ModelSelector;
   private selectorPreferredModel: string;
   private requestCount = 0;
+  private promptCache = new PromptCache();
 
   constructor(config: ProwlInferenceConfig) {
     this.config = config;
@@ -197,6 +201,14 @@ export class ProwlInferenceMiddleware {
         content: m.content,
       }));
 
+    // Use prompt cache to avoid re-serializing tool schemas and rebuilding
+    // the system prompt template when model + tools haven't changed between turns.
+    const cached = this.promptCache.getOrBuild(
+      selection.model,
+      () => systemMsg?.content ?? "",
+      tools,
+    );
+
     // Run the optimizer
     const optimized = optimizeModelPrompt({
       model: selection.model,
@@ -237,6 +249,7 @@ export class ProwlInferenceMiddleware {
       taskWeight,
       taskType,
       optimizerResult: optimized,
+      promptCacheHit: cached.wasCached,
     };
   }
 

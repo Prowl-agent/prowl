@@ -146,6 +146,7 @@ async function ollamaGenerate(params: {
       model: params.model,
       prompt: params.prompt,
       stream: false,
+      keep_alive: "5m",
       options: {
         temperature: params.temperature ?? 0.4,
         top_p: params.topP ?? 0.9,

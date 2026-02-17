@@ -130,6 +130,48 @@ export function buildKeepAliveParam(config: WarmupConfig): string | undefined {
   return `${config.keepAliveSeconds}s`;
 }
 
+// ── WarmPingService (class wrapper for keep-alive + warm-up) ────────────────
+
+/**
+ * Warm Ping Service
+ *
+ * Sends a minimal request to Ollama every 4 minutes to prevent
+ * model unloading (default Ollama timeout is 5 minutes).
+ * Also pre-warms the model on startup.
+ */
+export class WarmPingService {
+  private stopFn: (() => void) | null = null;
+  private model: string;
+  private ollamaUrl: string;
+
+  constructor(model: string, ollamaUrl: string = DEFAULT_OLLAMA_URL) {
+    this.model = model;
+    this.ollamaUrl = ollamaUrl;
+  }
+
+  /** Start the warm ping loop. Call once at gateway startup. */
+  start(intervalMs: number = 240_000): void {
+    if (this.stopFn) {
+      return; // Already running
+    }
+    // Immediate warm-up
+    warmModel(this.model, this.ollamaUrl).catch(() => {});
+    // Start periodic pings
+    this.stopFn = startKeepAlive(this.model, this.ollamaUrl, intervalMs);
+  }
+
+  stop(): void {
+    if (this.stopFn) {
+      this.stopFn();
+      this.stopFn = null;
+    }
+  }
+
+  get isRunning(): boolean {
+    return this.stopFn !== null;
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function envBool(key: string, defaultValue: boolean): boolean {
