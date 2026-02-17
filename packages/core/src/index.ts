@@ -1,5 +1,6 @@
 export * from "./analytics/index.js";
 export * from "./benchmark/index.js";
+export * from "./llm/index.js";
 export * from "./models/index.js";
 export * from "./optimizer/index.js";
 export * from "./privacy/index.js";

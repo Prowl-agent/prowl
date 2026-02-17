@@ -1,10 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ProwlInferenceMiddleware,
   createProwlInferenceConfig,
   detectTaskType,
   type ProwlInferenceConfig,
 } from "./prowl-inference-middleware.js";
+
+const mockFetch = vi.fn();
 
 function withEnvUnset<T>(keys: string[], run: () => T): T {
   const previous = new Map<string, string | undefined>();
@@ -27,6 +29,17 @@ function withEnvUnset<T>(keys: string[], run: () => T): T {
 }
 
 describe("detectTaskType", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal("fetch", mockFetch);
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        models: [{ name: "qwen3:8b", size: 5_936_648_224, size_vram: 5_936_648_224 }],
+      }),
+    });
+  });
+
   it("returns 'tool' when tools are provided", () => {
     const tools = [
       {
@@ -64,6 +77,7 @@ describe("createProwlInferenceConfig", () => {
     withEnvUnset(["PROWL_DEFAULT_CHAT_MODEL"], () => {
       const config = createProwlInferenceConfig();
       expect(config.model).toBe("qwen3:8b");
+      expect(config.ollamaUrl).toBe("http://127.0.0.1:11434");
     });
   });
 
@@ -79,21 +93,48 @@ describe("createProwlInferenceConfig", () => {
 describe("ProwlInferenceMiddleware", () => {
   const config: ProwlInferenceConfig = {
     model: "qwen3:8b",
+    ollamaUrl: "http://localhost:11434",
     enableOptimizer: true,
     enableCostTracking: false,
   };
 
-  it("returns null when optimizer is disabled", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal("fetch", mockFetch);
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        models: [
+          {
+            name: "qwen3:8b",
+            size: 5_936_648_224,
+            size_vram: 5_936_648_224,
+            details: { family: "qwen3", parameter_size: "8B" },
+          },
+          {
+            name: "qwen3:1.7b",
+            size: 2_355_771_424,
+            size_vram: 2_355_771_424,
+            details: { family: "qwen3", parameter_size: "1.7B" },
+          },
+        ],
+      }),
+    });
+  });
+
+  it("returns passthrough messages when optimizer is disabled", async () => {
     const disabledConfig = { ...config, enableOptimizer: false };
     const middleware = new ProwlInferenceMiddleware(disabledConfig);
     const messages = [
       { role: "system" as const, content: "You are helpful." },
       { role: "user" as const, content: "Hello" },
     ];
-    expect(middleware.optimizeRequest("qwen3:8b", messages)).toBeNull();
+    const result = await middleware.optimizeRequest("qwen3:8b", messages);
+    expect(result.messages).toEqual(messages);
+    expect(result.selectedModel).toBe("qwen3:1.7b");
   });
 
-  it("optimizes messages with system prompt tuning", () => {
+  it("optimizes messages with system prompt tuning", async () => {
     const middleware = new ProwlInferenceMiddleware(config);
     const messages = [
       {
@@ -105,36 +146,34 @@ describe("ProwlInferenceMiddleware", () => {
       { role: "user" as const, content: "Hello, how are you?" },
     ];
 
-    const result = middleware.optimizeRequest("qwen3:8b", messages);
+    const result = await middleware.optimizeRequest("qwen3:8b", messages);
 
-    expect(result).not.toBeNull();
     // System prompt should be replaced by tier-aware template
-    expect(result!.messages[0].role).toBe("system");
-    expect(result!.messages[0].content).toBeTruthy();
+    expect(result.messages[0].role).toBe("system");
+    expect(result.messages[0].content).toBeTruthy();
     // Options should have sampling params set
-    expect(result!.options.temperature).toBeDefined();
-    expect(result!.options.temperature).toBeLessThanOrEqual(1.0);
-    expect(result!.options.top_p).toBeDefined();
-    expect(result!.options.num_predict).toBeGreaterThan(0);
-    expect(result!.options.num_ctx).toBeGreaterThan(0);
+    expect(result.options.temperature).toBeDefined();
+    expect(result.options.temperature).toBeLessThanOrEqual(1.0);
+    expect(result.options.top_p).toBeDefined();
+    expect(result.options.num_predict).toBeGreaterThan(0);
+    expect(result.options.num_ctx).toBeGreaterThan(0);
   });
 
-  it("detects code tasks and lowers temperature", () => {
+  it("detects code tasks and lowers temperature", async () => {
     const middleware = new ProwlInferenceMiddleware(config);
     const messages = [
       { role: "system" as const, content: "You are a helpful assistant." },
       { role: "user" as const, content: "Write a TypeScript function to sort an array" },
     ];
 
-    const result = middleware.optimizeRequest("qwen3:8b", messages);
+    const result = await middleware.optimizeRequest("qwen3:8b", messages);
 
-    expect(result).not.toBeNull();
-    expect(result!.taskType).toBe("code");
+    expect(result.taskType).toBe("code");
     // Code tasks should have low temperature
-    expect(result!.options.temperature).toBeLessThanOrEqual(0.2);
+    expect(result.options.temperature).toBeLessThanOrEqual(0.2);
   });
 
-  it("detects tool tasks and sets precision params", () => {
+  it("detects tool tasks and sets precision params", async () => {
     const middleware = new ProwlInferenceMiddleware(config);
     const messages = [
       { role: "system" as const, content: "You are a helpful assistant." },
@@ -147,14 +186,13 @@ describe("ProwlInferenceMiddleware", () => {
       },
     ];
 
-    const result = middleware.optimizeRequest("qwen3:8b", messages, tools);
+    const result = await middleware.optimizeRequest("qwen3:8b", messages, tools);
 
-    expect(result).not.toBeNull();
-    expect(result!.taskType).toBe("tool");
-    expect(result!.options.temperature).toBeLessThanOrEqual(0.1);
+    expect(result.taskType).toBe("tool");
+    expect(result.options.temperature).toBeLessThanOrEqual(0.1);
   });
 
-  it("preserves tool messages from original input", () => {
+  it("preserves tool messages from original input", async () => {
     const middleware = new ProwlInferenceMiddleware(config);
     const messages = [
       { role: "system" as const, content: "You are helpful." },
@@ -167,23 +205,22 @@ describe("ProwlInferenceMiddleware", () => {
       { role: "user" as const, content: "Now what?" },
     ];
 
-    const result = middleware.optimizeRequest("qwen3:8b", messages);
+    const result = await middleware.optimizeRequest("qwen3:8b", messages);
 
-    expect(result).not.toBeNull();
     // Tool messages should be preserved
-    const toolMsgs = result!.messages.filter((m) => m.role === "tool");
+    const toolMsgs = result.messages.filter((m) => m.role === "tool");
     expect(toolMsgs.length).toBe(1);
     expect(toolMsgs[0].content).toBe("file1.txt\nfile2.txt");
   });
 
-  it("tracks request count", () => {
+  it("tracks request count", async () => {
     const middleware = new ProwlInferenceMiddleware(config);
     expect(middleware.stats.requestCount).toBe(0);
 
-    middleware.optimizeRequest("qwen3:8b", [{ role: "user" as const, content: "hi" }]);
+    await middleware.optimizeRequest("qwen3:8b", [{ role: "user" as const, content: "hi" }]);
     expect(middleware.stats.requestCount).toBe(1);
 
-    middleware.optimizeRequest("qwen3:8b", [{ role: "user" as const, content: "hello" }]);
+    await middleware.optimizeRequest("qwen3:8b", [{ role: "user" as const, content: "hello" }]);
     expect(middleware.stats.requestCount).toBe(2);
   });
 

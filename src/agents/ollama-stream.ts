@@ -27,9 +27,13 @@ import {
 
 // ── Prowl prompt optimizer (singleton, lazy init) ───────────────────────────
 let prowlMiddleware: ProwlInferenceMiddleware | null = null;
-function getProwlMiddleware(): ProwlInferenceMiddleware {
-  if (!prowlMiddleware) {
-    prowlMiddleware = new ProwlInferenceMiddleware(createProwlInferenceConfig());
+let prowlMiddlewareBaseUrl: string | null = null;
+function getProwlMiddleware(ollamaBaseUrl: string): ProwlInferenceMiddleware {
+  if (!prowlMiddleware || prowlMiddlewareBaseUrl !== ollamaBaseUrl) {
+    prowlMiddleware = new ProwlInferenceMiddleware(
+      createProwlInferenceConfig(undefined, ollamaBaseUrl),
+    );
+    prowlMiddlewareBaseUrl = ollamaBaseUrl;
   }
   return prowlMiddleware;
 }
@@ -260,32 +264,38 @@ export function buildAssistantMessage(
 
 // ── Main StreamFn factory ───────────────────────────────────────────────────
 
-function resolveOllamaChatUrl(baseUrl: string): string {
+function resolveOllamaBaseUrl(baseUrl: string): string {
   const trimmed = baseUrl.trim().replace(/\/+$/, "");
   const normalizedBase = trimmed.replace(/\/v1$/i, "");
-  const apiBase = normalizedBase || OLLAMA_NATIVE_BASE_URL;
+  return normalizedBase || OLLAMA_NATIVE_BASE_URL;
+}
+
+function resolveOllamaChatUrl(baseUrl: string): string {
+  const apiBase = resolveOllamaBaseUrl(baseUrl);
   return `${apiBase}/api/chat`;
 }
 
 export function createOllamaStreamFn(baseUrl: string): StreamFn {
+  const ollamaBaseUrl = resolveOllamaBaseUrl(baseUrl);
   const chatUrl = resolveOllamaChatUrl(baseUrl);
 
   return (model, context, options) => {
     const stream = createAssistantMessageEventStream();
+    let selectedModelId = model.id;
 
     const run = async () => {
       try {
-        const trace = createPerfTrace(model.id, chatUrl);
-
         let ollamaMessages = convertToOllamaMessages(context.messages ?? [], context.systemPrompt);
 
         const ollamaTools = extractOllamaTools(context.tools);
+        selectedModelId = model.id;
 
-        // ── Prowl optimizer: rewrite system prompt + set optimal sampling ───
-        const optimized = getProwlMiddleware().optimizeRequest(
+        // ── Prowl optimizer + model selection ───────────────────────────────
+        const optimized = await getProwlMiddleware(ollamaBaseUrl).optimizeRequest(
           model.id,
           ollamaMessages,
           ollamaTools.length > 0 ? ollamaTools : undefined,
+          context.messages?.length,
         );
         let detectedTaskType: string = "unknown";
 
@@ -308,24 +318,25 @@ export function createOllamaStreamFn(baseUrl: string): StreamFn {
         let numCtx = 8192;
         const ollamaOptions: Record<string, unknown> = { num_ctx: numCtx };
 
-        if (optimized) {
-          ollamaMessages = optimized.messages as OllamaChatMessage[];
-          detectedTaskType = optimized.taskType;
-          // Merge optimizer sampling params
-          if (optimized.options.temperature !== undefined) {
-            ollamaOptions.temperature = optimized.options.temperature;
-          }
-          if (optimized.options.top_p !== undefined) {
-            ollamaOptions.top_p = optimized.options.top_p;
-          }
-          if (optimized.options.num_predict !== undefined) {
-            ollamaOptions.num_predict = optimized.options.num_predict;
-          }
-          if (optimized.options.num_ctx !== undefined) {
-            numCtx = optimized.options.num_ctx;
-            ollamaOptions.num_ctx = numCtx;
-          }
+        ollamaMessages = optimized.messages as OllamaChatMessage[];
+        detectedTaskType = optimized.taskType;
+        selectedModelId = optimized.selectedModel;
+        // Merge optimizer sampling params
+        if (optimized.options.temperature !== undefined) {
+          ollamaOptions.temperature = optimized.options.temperature;
         }
+        if (optimized.options.top_p !== undefined) {
+          ollamaOptions.top_p = optimized.options.top_p;
+        }
+        if (optimized.options.num_predict !== undefined) {
+          ollamaOptions.num_predict = optimized.options.num_predict;
+        }
+        if (optimized.options.num_ctx !== undefined) {
+          numCtx = optimized.options.num_ctx;
+          ollamaOptions.num_ctx = numCtx;
+        }
+
+        const trace = createPerfTrace(selectedModelId, chatUrl);
         trace.numCtx = numCtx;
 
         // Caller overrides take precedence over optimizer defaults
@@ -341,7 +352,7 @@ export function createOllamaStreamFn(baseUrl: string): StreamFn {
         const keepAlive = buildKeepAliveParam(warmupConfig);
 
         const body: OllamaChatRequest = {
-          model: model.id,
+          model: selectedModelId,
           messages: ollamaMessages,
           stream: true,
           ...(ollamaTools.length > 0 ? { tools: ollamaTools } : {}),
@@ -391,7 +402,7 @@ export function createOllamaStreamFn(baseUrl: string): StreamFn {
           content: [],
           api: model.api,
           provider: model.provider,
-          model: model.id,
+          model: selectedModelId,
           usage: {
             input: 0,
             output: 0,
@@ -461,7 +472,7 @@ export function createOllamaStreamFn(baseUrl: string): StreamFn {
         const assistantMessage = buildAssistantMessage(finalResponse, {
           api: model.api,
           provider: model.provider,
-          id: model.id,
+          id: selectedModelId,
         });
 
         const reason: Extract<StopReason, "stop" | "length" | "toolUse"> =
@@ -480,14 +491,14 @@ export function createOllamaStreamFn(baseUrl: string): StreamFn {
         logPerfTrace(finalTrace);
 
         // Record inference for Prowl cost analytics (best-effort, never throws).
-        getProwlMiddleware()
+        getProwlMiddleware(ollamaBaseUrl)
           .recordCompletion(
             finalResponse.prompt_eval_count ?? 0,
             finalResponse.eval_count ?? 0,
             finalTrace.totalMs,
             finalTrace.tokensPerSec,
             detectedTaskType as "chat" | "code" | "agent" | "tool" | "unknown",
-            model.id,
+            selectedModelId,
           )
           .catch(() => {});
 
@@ -508,7 +519,7 @@ export function createOllamaStreamFn(baseUrl: string): StreamFn {
             errorMessage,
             api: model.api,
             provider: model.provider,
-            model: model.id,
+            model: selectedModelId,
             usage: {
               input: 0,
               output: 0,

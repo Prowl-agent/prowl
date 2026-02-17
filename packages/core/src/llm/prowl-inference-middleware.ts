@@ -23,21 +23,28 @@ import {
   type OptimizerTaskType,
   type OptimizedPromptResult,
 } from "../optimizer/model-prompt-optimizer.js";
+import { ModelSelector, type TaskWeight } from "./model-selector.js";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
 export interface ProwlInferenceConfig {
   /** Model name, e.g. "qwen3:8b" */
   model: string;
+  /** Ollama base URL used to query loaded models */
+  ollamaUrl: string;
   /** Whether the optimizer is enabled. Disable via PROWL_DISABLE_OPTIMIZER=true */
   enableOptimizer: boolean;
   /** Whether cost tracking is enabled. Disable via PROWL_DISABLE_COST_TRACKING=true */
   enableCostTracking: boolean;
 }
 
-export function createProwlInferenceConfig(model?: string): ProwlInferenceConfig {
+export function createProwlInferenceConfig(
+  model?: string,
+  ollamaUrl?: string,
+): ProwlInferenceConfig {
   return {
     model: model ?? process.env.PROWL_DEFAULT_CHAT_MODEL ?? "qwen3:8b",
+    ollamaUrl: ollamaUrl ?? process.env.PROWL_OLLAMA_URL ?? "http://127.0.0.1:11434",
     enableOptimizer: process.env.PROWL_DISABLE_OPTIMIZER !== "true",
     enableCostTracking: process.env.PROWL_DISABLE_COST_TRACKING !== "true",
   };
@@ -125,16 +132,23 @@ export function detectTaskType(userContent: string, tools?: OllamaTool[]): Optim
 export interface OptimizeResult {
   messages: OllamaMessage[];
   options: OllamaOptimizedOptions;
+  selectedModel: string;
+  modelReason: string;
+  taskWeight: TaskWeight;
   taskType: OptimizerTaskType;
-  optimizerResult: OptimizedPromptResult;
+  optimizerResult?: OptimizedPromptResult;
 }
 
 export class ProwlInferenceMiddleware {
   private config: ProwlInferenceConfig;
+  private modelSelector: ModelSelector;
+  private selectorPreferredModel: string;
   private requestCount = 0;
 
   constructor(config: ProwlInferenceConfig) {
     this.config = config;
+    this.modelSelector = new ModelSelector(config.model, config.ollamaUrl);
+    this.selectorPreferredModel = config.model;
   }
 
   /**
@@ -142,22 +156,37 @@ export class ProwlInferenceMiddleware {
    *
    * Takes the already-converted OllamaMessages and tools, runs the optimizer,
    * and returns optimized messages + Ollama options to merge into the request.
-   *
-   * Returns null if the optimizer is disabled.
    */
-  optimizeRequest(
+  async optimizeRequest(
     modelId: string,
     messages: OllamaMessage[],
     tools?: OllamaTool[],
-  ): OptimizeResult | null {
-    if (!this.config.enableOptimizer) {
-      return null;
-    }
+    conversationLength?: number,
+  ): Promise<OptimizeResult> {
+    this.refreshSelectorModel(modelId);
 
     // Extract system prompt, user prompt, and conversation history
     const systemMsg = messages.find((m) => m.role === "system");
     const lastUserMsg = messages.toReversed().find((m) => m.role === "user");
     const taskType = detectTaskType(lastUserMsg?.content || "", tools);
+    const taskWeight = this.modelSelector.classifyTaskWeight(
+      lastUserMsg?.content || "",
+      tools,
+      conversationLength,
+    );
+    const selection = await this.modelSelector.select(taskWeight);
+
+    if (!this.config.enableOptimizer) {
+      this.requestCount++;
+      return {
+        messages: [...messages],
+        options: {},
+        selectedModel: selection.model,
+        modelReason: selection.reason,
+        taskWeight,
+        taskType,
+      };
+    }
 
     // Build conversation history from non-system, non-tool messages
     // (excluding the last user message which becomes userPrompt)
@@ -170,7 +199,7 @@ export class ProwlInferenceMiddleware {
 
     // Run the optimizer
     const optimized = optimizeModelPrompt({
-      model: modelId,
+      model: selection.model,
       taskType,
       userPrompt: lastUserMsg?.content || "",
       systemPrompt: systemMsg?.content,
@@ -203,6 +232,9 @@ export class ProwlInferenceMiddleware {
     return {
       messages: optimizedMessages,
       options,
+      selectedModel: selection.model,
+      modelReason: selection.reason,
+      taskWeight,
       taskType,
       optimizerResult: optimized,
     };
@@ -245,5 +277,13 @@ export class ProwlInferenceMiddleware {
       model: this.config.model,
       tier: resolveModelTier(this.config.model),
     };
+  }
+
+  private refreshSelectorModel(modelId: string): void {
+    if (modelId === this.selectorPreferredModel) {
+      return;
+    }
+    this.selectorPreferredModel = modelId;
+    this.modelSelector = new ModelSelector(modelId, this.config.ollamaUrl);
   }
 }

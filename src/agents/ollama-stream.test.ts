@@ -244,7 +244,26 @@ describe("parseNdjsonStream", () => {
 describe("createOllamaStreamFn", () => {
   it("normalizes /v1 baseUrl and maps maxTokens + signal", async () => {
     const originalFetch = globalThis.fetch;
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/ps")) {
+        return new Response(
+          JSON.stringify({
+            models: [
+              {
+                name: "qwen3:32b",
+                size: 20_000_000_000,
+                size_vram: 20_000_000_000,
+                details: { family: "qwen3", parameter_size: "32B" },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
       const payload = [
         '{"model":"m","created_at":"t","message":{"role":"assistant","content":"ok"},"done":false}',
         '{"model":"m","created_at":"t","message":{"role":"assistant","content":""},"done":true,"prompt_eval_count":1,"eval_count":1}',
@@ -281,9 +300,11 @@ describe("createOllamaStreamFn", () => {
       }
       expect(events.at(-1)?.type).toBe("done");
 
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      const [url, requestInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-      expect(url).toBe("http://ollama-host:11434/api/chat");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const [firstUrl] = fetchMock.mock.calls[0] as unknown as [string];
+      const [chatUrl, requestInit] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+      expect(firstUrl).toBe("http://ollama-host:11434/api/ps");
+      expect(chatUrl).toBe("http://ollama-host:11434/api/chat");
       expect(requestInit.signal).toBe(signal);
       if (typeof requestInit.body !== "string") {
         throw new Error("Expected string request body");
