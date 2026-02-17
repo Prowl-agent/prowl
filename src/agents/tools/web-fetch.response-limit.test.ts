@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as fetchGuard from "../../infra/net/fetch-guard.js";
 import * as ssrf from "../../infra/net/ssrf.js";
 import { createWebFetchTool } from "./web-tools.js";
 
@@ -26,8 +27,6 @@ const baseToolConfig = {
 } as const;
 
 describe("web_fetch response size limits", () => {
-  const priorFetch = global.fetch;
-
   beforeEach(() => {
     lookupMock.mockResolvedValue([{ address: "93.184.216.34", family: 4 }]);
     vi.spyOn(ssrf, "resolvePinnedHostname").mockImplementation((hostname) =>
@@ -36,8 +35,6 @@ describe("web_fetch response size limits", () => {
   });
 
   afterEach(() => {
-    // @ts-expect-error restore
-    global.fetch = priorFetch;
     lookupMock.mockReset();
     vi.restoreAllMocks();
   });
@@ -53,14 +50,17 @@ describe("web_fetch response size limits", () => {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
-
-    const fetchSpy = vi.fn().mockResolvedValue(response);
-    // @ts-expect-error mock fetch
-    global.fetch = fetchSpy;
+    const releaseMock = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(fetchGuard, "fetchWithSsrFGuard").mockResolvedValue({
+      response,
+      finalUrl: "https://example.com/stream",
+      release: releaseMock,
+    });
 
     const tool = createWebFetchTool(baseToolConfig);
     const result = await tool?.execute?.("call", { url: "https://example.com/stream" });
 
     expect(result?.details?.warning).toContain("Response body truncated");
+    expect(releaseMock).toHaveBeenCalled();
   });
 });

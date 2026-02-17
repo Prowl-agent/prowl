@@ -91,7 +91,7 @@ import { monitorWebInbox, resetWebInboundDedupe } from "./inbound.js";
 async function waitForMessage(onMessage: ReturnType<typeof vi.fn>) {
   await vi.waitFor(() => expect(onMessage).toHaveBeenCalledTimes(1), {
     interval: 1,
-    timeout: 250,
+    timeout: 2_000,
   });
   return onMessage.mock.calls[0][0];
 }

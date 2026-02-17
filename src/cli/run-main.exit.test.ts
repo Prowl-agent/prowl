@@ -6,6 +6,14 @@ const loadDotEnvMock = vi.hoisted(() => vi.fn());
 const normalizeEnvMock = vi.hoisted(() => vi.fn());
 const ensurePathMock = vi.hoisted(() => vi.fn());
 const assertRuntimeMock = vi.hoisted(() => vi.fn());
+const resolveAutoModelMock = vi.hoisted(() =>
+  vi.fn(async () => ({ model: "qwen3:8b", provider: "ollama" })),
+);
+const readWarmupConfigMock = vi.hoisted(() =>
+  vi.fn(() => ({ keepAlive: false, warmOnBoot: false, keepAliveSeconds: 300 })),
+);
+const warmModelMock = vi.hoisted(() => vi.fn(async () => -1));
+const startKeepAliveMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./route.js", () => ({
   tryRouteCli: tryRouteCliMock,
@@ -25,6 +33,16 @@ vi.mock("../infra/path-env.js", () => ({
 
 vi.mock("../infra/runtime-guard.js", () => ({
   assertSupportedRuntime: assertRuntimeMock,
+}));
+
+vi.mock("../../packages/core/src/setup/auto-model.js", () => ({
+  resolveAutoModel: resolveAutoModelMock,
+}));
+
+vi.mock("../../packages/core/src/perf/model-warmup.js", () => ({
+  readWarmupConfig: readWarmupConfigMock,
+  warmModel: warmModelMock,
+  startKeepAlive: startKeepAliveMock,
 }));
 
 const { runCli } = await import("./run-main.js");

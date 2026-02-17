@@ -37,7 +37,7 @@ export interface ProwlInferenceConfig {
 
 export function createProwlInferenceConfig(model?: string): ProwlInferenceConfig {
   return {
-    model: model || process.env.PROWL_DEFAULT_CHAT_MODEL || "qwen3:8b",
+    model: model ?? process.env.PROWL_DEFAULT_CHAT_MODEL ?? "qwen3:8b",
     enableOptimizer: process.env.PROWL_DISABLE_OPTIMIZER !== "true",
     enableCostTracking: process.env.PROWL_DISABLE_COST_TRACKING !== "true",
   };

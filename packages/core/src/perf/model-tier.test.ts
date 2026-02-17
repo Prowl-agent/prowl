@@ -1,16 +1,38 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { readModelTierConfig, resolveModelForComplexity } from "./model-tier.js";
 
+function withEnvUnset<T>(keys: string[], run: () => T): T {
+  const previous = new Map<string, string | undefined>();
+  for (const key of keys) {
+    previous.set(key, process.env[key]);
+    delete process.env[key];
+  }
+
+  try {
+    return run();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 describe("readModelTierConfig", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
   });
 
   it("uses default model when no env vars", () => {
-    const config = readModelTierConfig("qwen3:8b");
-    expect(config.chatModel).toBe("qwen3:8b");
-    expect(config.heavyModel).toBe("qwen3:8b");
-    expect(config.autoRoute).toBe(false);
+    withEnvUnset(["PROWL_DEFAULT_CHAT_MODEL", "PROWL_HEAVY_MODEL", "PROWL_AUTO_ROUTE"], () => {
+      const config = readModelTierConfig("qwen3:8b");
+      expect(config.chatModel).toBe("qwen3:8b");
+      expect(config.heavyModel).toBe("qwen3:8b");
+      expect(config.autoRoute).toBe(false);
+    });
   });
 });
 

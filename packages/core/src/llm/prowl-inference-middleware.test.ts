@@ -3,7 +3,28 @@ import {
   ProwlInferenceMiddleware,
   createProwlInferenceConfig,
   detectTaskType,
+  type ProwlInferenceConfig,
 } from "./prowl-inference-middleware.js";
+
+function withEnvUnset<T>(keys: string[], run: () => T): T {
+  const previous = new Map<string, string | undefined>();
+  for (const key of keys) {
+    previous.set(key, process.env[key]);
+    delete process.env[key];
+  }
+
+  try {
+    return run();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
 
 describe("detectTaskType", () => {
   it("returns 'tool' when tools are provided", () => {
@@ -40,19 +61,27 @@ describe("createProwlInferenceConfig", () => {
   });
 
   it("defaults to qwen3:8b when no model specified", () => {
-    const config = createProwlInferenceConfig();
-    expect(config.model).toBe("qwen3:8b");
+    withEnvUnset(["PROWL_DEFAULT_CHAT_MODEL"], () => {
+      const config = createProwlInferenceConfig();
+      expect(config.model).toBe("qwen3:8b");
+    });
   });
 
   it("enables optimizer and cost tracking by default", () => {
-    const config = createProwlInferenceConfig();
-    expect(config.enableOptimizer).toBe(true);
-    expect(config.enableCostTracking).toBe(true);
+    withEnvUnset(["PROWL_DISABLE_OPTIMIZER", "PROWL_DISABLE_COST_TRACKING"], () => {
+      const config = createProwlInferenceConfig();
+      expect(config.enableOptimizer).toBe(true);
+      expect(config.enableCostTracking).toBe(true);
+    });
   });
 });
 
 describe("ProwlInferenceMiddleware", () => {
-  const config = createProwlInferenceConfig("qwen3:8b");
+  const config: ProwlInferenceConfig = {
+    model: "qwen3:8b",
+    enableOptimizer: true,
+    enableCostTracking: false,
+  };
 
   it("returns null when optimizer is disabled", () => {
     const disabledConfig = { ...config, enableOptimizer: false };
